@@ -170,7 +170,7 @@ class AXML:
 
 
 def build_manifest(pkg, app_name_label_res, version_code, version_name,
-                   icon_ref, theme_ref, netsec_ref):
+                   icon_ref, theme_ref):
     x = AXML()
     NS = 'http://schemas.android.com/apk/res/android'
     x.start_ns('android', NS)
@@ -197,7 +197,10 @@ def build_manifest(pkg, app_name_label_res, version_code, version_name,
         x.a('hardwareAccelerated', 0xFFFFFFFF, dtype=0x12),
         x.a('allowBackup', 1, dtype=0x12),
         x.a('supportsRtl', 0xFFFFFFFF, dtype=0x12),
-        x.attr('networkSecurityConfig', None, NS, dtype=0x01, raw=netsec_ref),
+        # NOTE: no networkSecurityConfig attribute — the resource 0x7F040000
+        # it used to point at was never registered in resources.arsc, so the
+        # manifest referenced a resource that does not exist (dangling
+        # reference). The app allows cleartext via usesCleartextTraffic above.
     ])
 
     x.start_tag('activity', [

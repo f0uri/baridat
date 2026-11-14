@@ -19,8 +19,8 @@ WORK = ROOT / 'apk-build'
 
 PKG = 'com.baridat.app'
 APP_NAME_AR = 'بريدات'
-VERSION_CODE = 9
-VERSION_NAME = '1.2.7'
+VERSION_CODE = 10
+VERSION_NAME = "1.2.8"
 
 # Resource IDs
 # Package 0x7F, type 1 = attr, 2 = drawable/mipmap, 3 = string, 4 = style, 5 = xml
@@ -259,10 +259,12 @@ def build_signed_apk():
     entries.append(('AndroidManifest.xml', manifest_bytes))
     entries.append(('classes.dex', dex_bytes))
     entries.append(('resources.arsc', arsc_bytes))
-    entries.append(('res/mipmap-hdpi-v4/ic_launcher.png', icon192))
-    entries.append(('res/mipmap-xhdpi-v4/ic_launcher.png', icon512))
-    entries.append(('res/mipmap-xxhdpi-v4/ic_launcher.png', icon512))
-    entries.append(('res/drawable/ic_launcher.png', icon512))
+    # NOTE: Do NOT put PNGs under res/ without registering them in resources.arsc.
+    # Unreferenced res/ entries cause "invalid package" / "not compatible" errors
+    # on strict verifiers (Tecno HIOS / Android 15). The launcher icon uses the
+    # framework default (@android:drawable/sym_def_app_icon = 0x01080008). Our
+    # branded icon is included only in assets/ for the PWA manifest inside the
+    # WebView — it is NOT the host app's launcher icon.
     # Web assets
     for path in DIST.rglob('*'):
         if path.is_file():

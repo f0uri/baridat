@@ -27,8 +27,6 @@ jobs:
         run: npm run build
       - name: Copy version.json to dist
         run: cp public/version.json dist/version.json
-      - name: List dist
-        run: ls -la dist/
       - name: Upload web build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -45,25 +43,28 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install Python dependencies
-        run: pip install cryptography pyasn1 pyasn1-modules
-      - name: Verify python packages
-        run: python3 -c "import cryptography; import pyasn1; import pyasn1_modules; print('python deps OK')"
+        run: |
+          pip install --upgrade pip
+          pip install cryptography pyasn1 pyasn1-modules
+          python3 -c "import cryptography; import pyasn1; import pyasn1_modules; print('python deps OK')"
       - name: Download web artifact
         uses: actions/download-artifact@v4
         with:
           name: web-dist
           path: dist/
-      - name: List repo files
-        run: ls -la && echo "---dist---" && ls -la dist/
       - name: Build APK
         run: |
-          set -x
           cd apk-build
-          python3 mkapk.py 2>&1
+          python3 mkapk.py 2>&1 | tee /tmp/build.log
           ls -la ../baridat.apk
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: baridat-apk
           path: baridat.apk

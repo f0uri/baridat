@@ -1,8 +1,8 @@
 {
-  "version": "1.2.0",
-  "versionCode": 4,
+  "version": "1.2.3",
+  "versionCode": 5,
   "apkUrl": "baridat.apk",
-  "releaseNotes": "الإصدار الأول — واجهة زجاجية عائمة، استقبال تلقائي للرسائل، عدة بريدات، نسخ وتغيير البريد، OTA.",
-  "updatedAt": "2026-11-14T16:45:00Z",
+  "releaseNotes": "إصلاح خطأ «حدثت مشكلة أثناء تحليل الحزمة» — التطبيق يتثبّت الآن.",
+  "updatedAt": "2026-11-14T19:50:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

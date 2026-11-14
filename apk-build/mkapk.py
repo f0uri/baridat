@@ -12,7 +12,7 @@ from dex import DexBuilder, u8, u16, u32
 from axml import build_manifest
 from arsc import ResTable, res_value, TYPE_REFERENCE, TYPE_STRING
 
-ROOT = Path('/home/user/baridat')
+ROOT = Path(os.environ.get('BARIDAT_ROOT', os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 DIST = ROOT / 'dist'
 OUT_APK = ROOT / 'baridat.apk'
 WORK = ROOT / 'apk-build'

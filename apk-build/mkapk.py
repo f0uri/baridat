@@ -19,8 +19,8 @@ WORK = ROOT / 'apk-build'
 
 PKG = 'com.baridat.app'
 APP_NAME_AR = 'بريدات'
-VERSION_CODE = 6
-VERSION_NAME = '1.2.4'
+VERSION_CODE = 7
+VERSION_NAME = '1.2.5'
 
 # Resource IDs
 # Package 0x7F, type 1 = attr, 2 = drawable/mipmap, 3 = string, 4 = style, 5 = xml
@@ -242,7 +242,7 @@ def build_signed_apk():
     print(f"Total entries: {len(entries)}")
 
     print("Signing APK ...")
-    sign_apk_v1(entries, OUT_APK)
+    sign_apk_v2_only(entries, OUT_APK)
     print(f"Signed APK written to: {OUT_APK} ({OUT_APK.stat().st_size / 1024:.1f} KB)")
     return OUT_APK
 
@@ -272,9 +272,19 @@ def _load_stable_signing():
 
 
 # ---------- V1 JAR signing ----------
-def sign_apk_v1(entries, out_path):
-    """Sign entries with JAR v1 signature and write a zipaligned APK.
-    
+def sign_apk_v2_only(entries, out_path):
+    """Write a zipaligned APK signed with APK Signature Scheme v2 ONLY.
+
+    No JAR (v1) signature is written. The hand-rolled v1 signature
+    (MANIFEST.MF / CERT.SF / CERT.RSA) was rejected by the device's
+    verifier ("Verified failed by V1") even though every digest, the
+    PKCS#7 signature and the messageDigest all verify — the v1 path in
+    this builder is not trusted by the installer. The working IG SAVE
+    build (Gradle/apksigner) ships v2-only and installs fine on the
+    same phone, so Baridat does the same. V2-only requires Android 7+
+    (API 24); the app targets API 21+ devices but is installed on
+    Android 15 here.
+
     entries: list of (name, data_bytes) — non-META-INF entries only.
     """
     from cryptography.hazmat.primitives import hashes, serialization
@@ -307,48 +317,20 @@ def sign_apk_v1(entries, out_path):
         cert_der = cert.public_bytes(serialization.Encoding.DER)
         print("  ⚠ No stable signing key set — ephemeral key generated (updates will NOT install over this build)")
 
-    def b64(b): return base64.b64encode(b).decode('ascii')
-
-    manifest_lines = ['Manifest-Version: 1.0', 'Created-By: Baridat APK Builder 1.0', '']
-    sf_lines = ['Signature-Version: 1.0', 'Created-By: Baridat APK Builder 1.0', 'X-Android-APK-Signed: 2', '']
-
-    manifest_entry_blocks = []
-    sf_entry_blocks = []
-    # Sort entries for deterministic output
-    sorted_entries = sorted(entries, key=lambda x: x[0])
-    for name, data in sorted_entries:
-        digest = b64(hashlib.sha256(data).digest())
-        block = f'Name: {name}\nSHA-256-Digest: {digest}\n\n'
-        manifest_entry_blocks.append(block)
-        entry_digest = b64(hashlib.sha256(block.encode('utf-8')).digest())
-        sf_entry_blocks.append(f'Name: {name}\nSHA-256-Digest: {entry_digest}\n\n')
-
-    manifest = '\n'.join(manifest_lines) + '\n' + ''.join(manifest_entry_blocks)
-    manifest_digest = b64(hashlib.sha256(manifest.encode('utf-8')).digest())
-    sf_lines.append(f'SHA-256-Digest-Manifest: {manifest_digest}')
-    sf_lines.append('')
-    sf = '\n'.join(sf_lines) + '\n' + ''.join(sf_entry_blocks)
-
-    sf_bytes = sf.encode('utf-8')
-    from pkcs7_sign import make_pkcs7
-    pkcs7_der = make_pkcs7(cert_der, None, sf_bytes, key)
-
-    # Write signed APK with proper zipalign
+    # V2-ONLY: no JAR v1 signature files are written (see docstring).
+    # Write APK with proper zipalign
     from apk_utils import build_aligned_apk, verify_alignment
     import zipfile as _z
     # Determine compression per entry:
-    # - STORED: AndroidManifest.xml, classes.dex, resources.arsc, res/**, META-INF/**
+    # - STORED: AndroidManifest.xml, classes.dex, resources.arsc, res/**
     # - DEFLATED: assets/** (compressed)
     all_entries = []
     STORE_NAMES = {'AndroidManifest.xml', 'classes.dex', 'resources.arsc'}
     for n, data in entries:
-        if n in STORE_NAMES or n.startswith('META-INF/') or n.startswith('res/'):
+        if n in STORE_NAMES or n.startswith('res/'):
             all_entries.append((n, data, _z.ZIP_STORED))
         else:
             all_entries.append((n, data, _z.ZIP_DEFLATED))
-    all_entries.append(('META-INF/MANIFEST.MF', manifest.encode('utf-8'), _z.ZIP_STORED))
-    all_entries.append(('META-INF/CERT.SF', sf_bytes, _z.ZIP_STORED))
-    all_entries.append(('META-INF/CERT.RSA', pkcs7_der, _z.ZIP_STORED))
     build_aligned_apk(all_entries, out_path)
     if not verify_alignment(out_path):
         print("  ⚠ WARNING: alignment issues detected")

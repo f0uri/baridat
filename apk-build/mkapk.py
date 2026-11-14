@@ -219,11 +219,14 @@ def build_signed_apk():
     print("Building AndroidManifest.xml ...")
     # Use framework icon for simplicity; our custom icon will appear after install via manifest icon (we will add PNGs under res/mipmap-anydpi-v26/ but they need resource IDs)
     # Use @android:drawable/sym_def_app_icon = 0x01080008
+    # Resource IDs:
+    # Package 0x7F, type 1 = string (first type we add) → app_name = 0x7F010000
+    APP_NAME_RES_ID = 0x7F010000
     manifest_bytes = build_manifest(
         PKG,
-        APP_NAME_RES_ID,  # label reference to @string/app_name
+        APP_NAME_RES_ID,
         VERSION_CODE, VERSION_NAME,
-        icon_ref=0x01080008,  # framework icon (fallback)
+        icon_ref=0x01080008,  # framework icon (sym_def_app_icon)
         theme_ref=THEME_RES_ID,
         netsec_ref=NETSEC_RES_ID,
     )
@@ -241,38 +244,41 @@ def build_signed_apk():
     icon192 = (ROOT / 'public' / 'icon-192.png').read_bytes()
     icon512 = (ROOT / 'public' / 'icon-512.png').read_bytes()
 
-    # Build unsigned APK (ZIP)
-    unsigned_path = WORK / 'unsigned.apk'
-    with zipfile.ZipFile(unsigned_path, 'w', zipfile.ZIP_DEFLATED) as z:
-        z.writestr('AndroidManifest.xml', manifest_bytes)
-        z.writestr('classes.dex', dex_bytes)
-        z.writestr('resources.arsc', arsc_bytes)
-        z.writestr('res/xml/network_security_config.xml', netsec_bytes)
-        # Include icons at multiple densities (they need resource IDs which we don't have, but they'll be ignored by package manager if not referenced; ok)
-        z.writestr('res/mipmap-hdpi-v4/ic_launcher.png', icon192)
-        z.writestr('res/mipmap-xhdpi-v4/ic_launcher.png', icon512)
-        z.writestr('res/mipmap-xxhdpi-v4/ic_launcher.png', icon512)
-        z.writestr('res/drawable/ic_launcher.png', icon512)
-        # Web assets
-        for path in DIST.rglob('*'):
-            if path.is_file():
-                rel = path.relative_to(DIST).as_posix()
-                target = f'assets/{rel}'
-                z.writestr(target, path.read_bytes())
+    # Collect all entries (unsigned)
+    entries = []
+    entries.append(('AndroidManifest.xml', manifest_bytes))
+    entries.append(('classes.dex', dex_bytes))
+    entries.append(('resources.arsc', arsc_bytes))
+    entries.append(('res/xml/network_security_config.xml', netsec_bytes))
+    entries.append(('res/mipmap-hdpi-v4/ic_launcher.png', icon192))
+    entries.append(('res/mipmap-xhdpi-v4/ic_launcher.png', icon512))
+    entries.append(('res/mipmap-xxhdpi-v4/ic_launcher.png', icon512))
+    entries.append(('res/drawable/ic_launcher.png', icon512))
+    # Web assets
+    for path in DIST.rglob('*'):
+        if path.is_file():
+            rel = path.relative_to(DIST).as_posix()
+            target = f'assets/{rel}'
+            if target.endswith('.apk'):
+                continue
+            entries.append((target, path.read_bytes()))
 
-    print(f"Unsigned APK: {unsigned_path.stat().st_size} bytes")
+    print(f"Total entries: {len(entries)}")
 
     print("Signing APK ...")
-    sign_apk_v1(unsigned_path, OUT_APK)
+    sign_apk_v1(entries, OUT_APK)
     print(f"Signed APK written to: {OUT_APK} ({OUT_APK.stat().st_size / 1024:.1f} KB)")
     return OUT_APK
 
 
 # ---------- V1 JAR signing ----------
-def sign_apk_v1(unsigned_path, out_path):
-    """Sign APK with JAR v1 signature using a fresh RSA key (Python cryptography)."""
+def sign_apk_v1(entries, out_path):
+    """Sign entries with JAR v1 signature and write a zipaligned APK.
+    
+    entries: list of (name, data_bytes) — non-META-INF entries only.
+    """
     from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa, padding
+    from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     import datetime
@@ -295,25 +301,16 @@ def sign_apk_v1(unsigned_path, out_path):
         .sign(key, hashes.SHA256()))
     cert_der = cert.public_bytes(serialization.Encoding.DER)
 
-    # Read all non-META-INF entries
-    entries = []
-    with zipfile.ZipFile(unsigned_path, 'r') as z:
-        for n in z.namelist():
-            if n.startswith('META-INF/'): continue
-            data = z.read(n)
-            entries.append((n, data))
-
-    # Build MANIFEST.MF
     def b64(b): return base64.b64encode(b).decode('ascii')
-    def wrap(line, n=72):
-        return '\n '.join(line[i:i+n] for i in range(0, len(line), n))
 
     manifest_lines = ['Manifest-Version: 1.0', 'Created-By: Baridat APK Builder 1.0', '']
     sf_lines = ['Signature-Version: 1.0', 'Created-By: Baridat APK Builder 1.0', '']
 
     manifest_entry_blocks = []
     sf_entry_blocks = []
-    for name, data in entries:
+    # Sort entries for deterministic output
+    sorted_entries = sorted(entries, key=lambda x: x[0])
+    for name, data in sorted_entries:
         digest = b64(hashlib.sha256(data).digest())
         block = f'Name: {name}\nSHA-256-Digest: {digest}\n\n'
         manifest_entry_blocks.append(block)
@@ -324,20 +321,37 @@ def sign_apk_v1(unsigned_path, out_path):
     manifest_digest = b64(hashlib.sha256(manifest.encode('utf-8')).digest())
     sf_lines.append(f'SHA-256-Digest-Manifest: {manifest_digest}')
     sf_lines.append('')
-    sf = '\n'.join(sf_lines) + ''.join(sf_entry_blocks)
+    sf = '\n'.join(sf_lines) + '\n' + ''.join(sf_entry_blocks)
 
     sf_bytes = sf.encode('utf-8')
     from pkcs7_sign import make_pkcs7
     pkcs7_der = make_pkcs7(cert_der, None, sf_bytes, key)
 
-    # Write signed APK
-    with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as z:
-        for n, data in entries:
-            z.writestr(n, data)
-        # META-INF files must be STORED (not compressed) per APK spec
-        z.writestr('META-INF/MANIFEST.MF', manifest, compress_type=zipfile.ZIP_STORED)
-        z.writestr('META-INF/CERT.SF', sf, compress_type=zipfile.ZIP_STORED)
-        z.writestr('META-INF/CERT.RSA', pkcs7_der, compress_type=zipfile.ZIP_STORED)
+    # Write signed APK with proper zipalign
+    from apk_utils import build_aligned_apk, verify_alignment
+    import zipfile as _z
+    # Determine compression per entry:
+    # - STORED: AndroidManifest.xml, classes.dex, resources.arsc, res/**, META-INF/**
+    # - DEFLATED: assets/** (compressed)
+    all_entries = []
+    STORE_NAMES = {'AndroidManifest.xml', 'classes.dex', 'resources.arsc'}
+    for n, data in entries:
+        if n in STORE_NAMES or n.startswith('META-INF/') or n.startswith('res/'):
+            all_entries.append((n, data, _z.ZIP_STORED))
+        else:
+            all_entries.append((n, data, _z.ZIP_DEFLATED))
+    all_entries.append(('META-INF/MANIFEST.MF', manifest.encode('utf-8'), _z.ZIP_STORED))
+    all_entries.append(('META-INF/CERT.SF', sf_bytes, _z.ZIP_STORED))
+    all_entries.append(('META-INF/CERT.RSA', pkcs7_der, _z.ZIP_STORED))
+    build_aligned_apk(all_entries, out_path)
+    if not verify_alignment(out_path):
+        print("  ⚠ WARNING: alignment issues detected")
+    else:
+        print("  ✓ All entries properly 4-byte aligned")
+    # Add APK Signature Scheme v2 (required for Android 7+ reliability)
+    from apk_v2_sign import add_v2_signature
+    add_v2_signature(out_path, key, cert_der)
+    print("  ✓ Added APK Signature Scheme v2")
 
 
 def build_pkcs7_signeddata(cert_der, signature, data, key):

@@ -283,21 +283,31 @@ class DexBuilder:
         # ---- Map list ----
         align_to(4)
         map_off = DATA_START + buf.tell()
-        # Map entries: type, count, offset
+        # Map entries: (type, count, offset). Type codes follow the DEX spec:
+        # 0x0000 HEADER, 0x0001 STRING_ID, 0x0002 TYPE_ID, 0x0003 PROTO_ID,
+        # 0x0004 FIELD_ID, 0x0005 METHOD_ID, 0x0006 CLASS_DEF, 0x1000 MAP_LIST,
+        # 0x1001 TYPE_LIST, 0x2000 CLASS_DATA, 0x2001 CODE, 0x2002 STRING_DATA.
+        # (An earlier build used type codes shifted down by one and omitted
+        # CLASS_DEF / MAP_LIST / the data sections, which made strict DEX
+        # parsers — and Android's installer — reject the APK as invalid.)
+        # Entries must be sorted by type code. Empty sections are omitted.
         map_entries = []
         def add_map(t, c, o):
             if c > 0: map_entries.append((t, c, o))
-        add_map(0x0000, num_strings, STRING_IDS_OFF)  # string_id_item
-        add_map(0x0001, num_types, TYPE_IDS_OFF)
-        add_map(0x0002, num_protos, PROTO_IDS_OFF)
-        add_map(0x0003, num_fields, FIELD_IDS_OFF)
-        add_map(0x0004, num_methods, METHOD_IDS_OFF)
-        add_map(0x0005, num_classes, CLASS_DEFS_OFF)
-        # code items
-        add_map(0x2003, len(code_items), next(iter(code_item_offsets.values())) if code_items else 0)
-        # map list itself (at end of map?)
-        # We'll skip map entries for types we didn't use.
-        # (string_data, type_lists would need offsets too; many DEX verifiers require them but Android is lenient enough)
+        add_map(0x0000, 1, 0)  # header
+        add_map(0x0001, num_strings, STRING_IDS_OFF)
+        add_map(0x0002, num_types, TYPE_IDS_OFF)
+        add_map(0x0003, num_protos, PROTO_IDS_OFF)
+        add_map(0x0004, num_fields, FIELD_IDS_OFF)
+        add_map(0x0005, num_methods, METHOD_IDS_OFF)
+        add_map(0x0006, num_classes, CLASS_DEFS_OFF)
+        add_map(0x1000, 1, map_off)  # map list itself
+        _tl = [o for o in proto_params_offsets if o]
+        add_map(0x1001, len(_tl), min(_tl) if _tl else 0)
+        add_map(0x2000, num_classes, class_data_offsets[0] if class_data_offsets else 0)
+        add_map(0x2001, len(code_items), min(code_item_offsets.values()) if code_item_offsets else 0)
+        add_map(0x2002, num_strings, DATA_START)  # string data starts the data section
+        map_entries.sort(key=lambda e: e[0])
         buf.write(u32(len(map_entries)))
         for t, c, o in map_entries:
             buf.write(u16(t))

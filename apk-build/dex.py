@@ -34,7 +34,7 @@ def sleb128(v):
 # Dalvik opcodes we need
 OP = {
     'nop': 0x00,
-    'move-result-object': 0x0C,
+    'move-result-object': 0x0B,  # op 0x0a=move-result, 0x0b=move-result-object, 0x0c=move-result-wide
     'return-void': 0x0E,
     'const/4': 0x12,
     'const/16': 0x13,
@@ -493,7 +493,7 @@ class DexBuilder:
                 insns += self._emit_invoke(0x6F, instr[1])
             elif op == 'move-result-object':
                 v = instr[1]['reg']
-                insns.append(0x0C)
+                insns.append(0x0B)  # 0x0a=move-result (int), 0x0b=move-result-object (ref), 0x0c=move-result-wide (long/double)
                 insns.append(v & 0xFF)
 
         # Insns size is in 16-bit code units. Pad to 2-byte boundary.
@@ -560,8 +560,8 @@ class DexBuilder:
         virtual_methods = []
         for m in cdef['methods']:
             acc = m['access']
-            if acc & 0x0008:  # ACC_STATIC (direct method)
-                # Direct methods are constructors and static methods. <init> has acc 0x10001
+            # Direct methods: static methods (ACC_STATIC=0x8) and constructors (ACC_CONSTRUCTOR=0x10000)
+            if (acc & 0x0008) or (acc & 0x10000):
                 direct_methods.append(m)
             else:
                 virtual_methods.append(m)

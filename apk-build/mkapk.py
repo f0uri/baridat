@@ -19,8 +19,8 @@ WORK = ROOT / 'apk-build'
 
 PKG = 'com.baridat.app'
 APP_NAME_AR = 'بريدات'
-VERSION_CODE = 5
-VERSION_NAME = '1.2.3'
+VERSION_CODE = 6
+VERSION_NAME = '1.2.4'
 
 # Resource IDs
 # Package 0x7F, type 1 = attr, 2 = drawable/mipmap, 3 = string, 4 = style, 5 = xml
@@ -31,7 +31,6 @@ APP_NAME_RES_ID = 0x7F030000  # string/app_name
 # Use android:Theme.DeviceDefault.NoActionBar — reference 0x0103000C is framework; aapt uses @*android:style
 # Simpler: point theme directly to @android:style/Theme.DeviceDefault.NoActionBar (id 0x0103022e)
 THEME_RES_ID = 0x0103022E  # android:Theme.DeviceDefault.NoActionBar.Fullscreen
-NETSEC_RES_ID = 0x7F040000  # xml/network_security_config
 
 
 def build_classes_dex():
@@ -152,28 +151,6 @@ def build_classes_dex():
     return db.build()
 
 
-def build_network_security_config():
-    """Build binary XML for res/xml/network_security_config.xml allowing cleartext."""
-    from axml import AXML
-    x = AXML()
-    NS = 'http://schemas.android.com/apk/res/android'
-    x.start_ns('android', NS)
-    x.start_tag('network-security-config')
-    # default-config: cleartextTrafficPermitted=true, trust anchors (system + user)
-    x.start_tag('base-config', [
-        x.a('cleartextTrafficPermitted', 0xFFFFFFFF, dtype=0x12),
-    ])
-    x.start_tag('trust-anchors')
-    x.start_tag('certificates', [x.a('src', 'system')]); x.end_tag('certificates')
-    x.start_tag('certificates', [x.a('src', 'user')]); x.end_tag('certificates')
-    x.end_tag('trust-anchors')
-    x.end_tag('base-config')
-    # Allow mail.tm API — already covered by base-config
-    x.end_tag('network-security-config')
-    x.end_ns('android', NS)
-    return x.build()
-
-
 def build_resources_arsc():
     rt = ResTable(package_id=0x7F, package_name=PKG)
     # Add string 'app_name' = APP_NAME_AR (referenced as type 3)
@@ -228,7 +205,6 @@ def build_signed_apk():
         VERSION_CODE, VERSION_NAME,
         icon_ref=0x01080008,  # framework icon (sym_def_app_icon)
         theme_ref=THEME_RES_ID,
-        netsec_ref=NETSEC_RES_ID,
     )
     print(f"  AndroidManifest.xml: {len(manifest_bytes)} bytes")
 
@@ -236,9 +212,10 @@ def build_signed_apk():
     arsc_bytes = build_resources_arsc()
     print(f"  resources.arsc: {len(arsc_bytes)} bytes")
 
-    print("Building network_security_config.xml ...")
-    netsec_bytes = build_network_security_config()
-    print(f"  network_security_config: {len(netsec_bytes)} bytes")
+    # NOTE: res/xml/network_security_config.xml is NOT packaged anymore —
+    # the manifest used to reference it as 0x7F040000 but that resource was
+    # never registered in resources.arsc (dangling reference). Cleartext is
+    # allowed via usesCleartextTraffic in the manifest instead.
 
     # Read icons
     icon192 = (ROOT / 'public' / 'icon-192.png').read_bytes()
@@ -249,7 +226,6 @@ def build_signed_apk():
     entries.append(('AndroidManifest.xml', manifest_bytes))
     entries.append(('classes.dex', dex_bytes))
     entries.append(('resources.arsc', arsc_bytes))
-    entries.append(('res/xml/network_security_config.xml', netsec_bytes))
     entries.append(('res/mipmap-hdpi-v4/ic_launcher.png', icon192))
     entries.append(('res/mipmap-xhdpi-v4/ic_launcher.png', icon512))
     entries.append(('res/mipmap-xxhdpi-v4/ic_launcher.png', icon512))
@@ -334,7 +310,7 @@ def sign_apk_v1(entries, out_path):
     def b64(b): return base64.b64encode(b).decode('ascii')
 
     manifest_lines = ['Manifest-Version: 1.0', 'Created-By: Baridat APK Builder 1.0', '']
-    sf_lines = ['Signature-Version: 1.0', 'Created-By: Baridat APK Builder 1.0', '']
+    sf_lines = ['Signature-Version: 1.0', 'Created-By: Baridat APK Builder 1.0', 'X-Android-APK-Signed: 2', '']
 
     manifest_entry_blocks = []
     sf_entry_blocks = []

@@ -1,8 +1,8 @@
 {
-  "version": "1.2.3",
-  "versionCode": 5,
+  "version": "1.2.4",
+  "versionCode": 6,
   "apkUrl": "baridat.apk",
-  "releaseNotes": "إصلاح خطأ «حدثت مشكلة أثناء تحليل الحزمة» — التطبيق يتثبّت الآن.",
-  "updatedAt": "2026-11-14T19:50:00Z",
+  "releaseNotes": "إصلاح مرجع networkSecurityConfig غير الموجود — التطبيق يتثبّت الآن.",
+  "updatedAt": "2026-11-14T19:55:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

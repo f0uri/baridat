@@ -19,8 +19,8 @@ WORK = ROOT / 'apk-build'
 
 PKG = 'com.baridat.app'
 APP_NAME_AR = 'بريدات'
-VERSION_CODE = 8
-VERSION_NAME = '1.2.6'
+VERSION_CODE = 9
+VERSION_NAME = '1.2.7'
 
 # Resource IDs
 # Package 0x7F, type 1 = attr, 2 = drawable/mipmap, 3 = string, 4 = style, 5 = xml
@@ -113,38 +113,71 @@ def build_classes_dex():
     cdef = db.cls(t_Main, 0x0001 | 0x0020, t_Activity)  # public, super
 
     # <init> method
-    db.add_method(cdef, m_our_init, 0x0001 | 0x0002, [
+    # registers=2, ins=1 → this = v1 (registers-ins), no locals other than params
+    # 0x0001 = ACC_PUBLIC, 0x10000 = ACC_CONSTRUCTOR
+    db.add_method(cdef, m_our_init, 0x0001 | 0x10000, [
         ('registers', 2), ('ins', 1), ('outs', 1),
         ('invoke-direct', {'method': m_Activity_init, 'regs': [1]}),
         ('return-void',),
     ])
 
-    # onCreate method
-    # registers: v0=this, v1=Bundle, v2=WebView, v3=WebSettings, v4=WebViewClient, v5=true, v6=false, v7=str_url, v8=0(int)
+    # onCreate(Landroid/os/Bundle;)V
+    # registers=10, ins=2 → inputs are v8=this, v9=bundle; locals v0..v7
+    #   v0 = WebView (ref)
+    #   v1 = WebSettings (ref)
+    #   v2 = WebViewClient (ref)
+    #   v3 = true (1)
+    #   v4 = false (0)
+    #   v5 = int 0
+    #   v6 = (unused / temp)
+    #   v7 = URL string (ref)
+    #   v8 = this (Activity ref) ← input
+    #   v9 = Bundle (ref) ← input
     db.add_method(cdef, m_our_onCreate, 0x0001 | 0x0004, [
-        ('registers', 9), ('ins', 2), ('outs', 3),
-        ('invoke-super', {'method': m_super_onCreate, 'regs': [0, 1]}),
-        ('const', {'reg': 5, 'val': 1}),  # true
-        ('const', {'reg': 6, 'val': 0}),  # false
-        ('const', {'reg': 8, 'val': 0}),
-        ('new-instance', {'reg': 2, 'type': t_WebView}),
-        ('invoke-direct', {'method': m_WebView_init, 'regs': [2, 0]}),
-        ('invoke-virtual', {'method': m_getSettings, 'regs': [2]}),
-        ('move-result-object', {'reg': 3}),
-        ('invoke-virtual', {'method': m_setJs, 'regs': [3, 5]}),
-        ('invoke-virtual', {'method': m_setDom, 'regs': [3, 5]}),
-        ('invoke-virtual', {'method': m_setWide, 'regs': [3, 5]}),
-        ('invoke-virtual', {'method': m_setOverview, 'regs': [3, 5]}),
-        ('invoke-virtual', {'method': m_setFile, 'regs': [3, 5]}),
-        ('invoke-virtual', {'method': m_setContent, 'regs': [3, 5]}),
-        ('invoke-virtual', {'method': m_setMediaGesture, 'regs': [3, 6]}),
-        ('invoke-virtual', {'method': m_setMixed, 'regs': [3, 8]}),
-        ('new-instance', {'reg': 4, 'type': t_WebViewClient}),
-        ('invoke-direct', {'method': m_WVC_init, 'regs': [4]}),
-        ('invoke-virtual', {'method': m_setWVC, 'regs': [2, 4]}),
+        ('registers', 10), ('ins', 2), ('outs', 2),
+        # super.onCreate(v9)
+        ('invoke-super', {'method': m_super_onCreate, 'regs': [8, 9]}),
+        # const/4 v3, 1 (true)
+        ('const', {'reg': 3, 'val': 1}),
+        # const/4 v4, 0 (false)
+        ('const', {'reg': 4, 'val': 0}),
+        # const/4 v5, 0 (int 0)
+        ('const', {'reg': 5, 'val': 0}),
+        # new-instance v0, WebView
+        ('new-instance', {'reg': 0, 'type': t_WebView}),
+        # v0.<init>(v8)  (WebView(Context))
+        ('invoke-direct', {'method': m_WebView_init, 'regs': [0, 8]}),
+        # v1 = v0.getSettings()
+        ('invoke-virtual', {'method': m_getSettings, 'regs': [0]}),
+        ('move-result-object', {'reg': 1}),
+        # v1.setJavaScriptEnabled(v3)  true
+        ('invoke-virtual', {'method': m_setJs, 'regs': [1, 3]}),
+        # v1.setDomStorageEnabled(v3)  true
+        ('invoke-virtual', {'method': m_setDom, 'regs': [1, 3]}),
+        # v1.setUseWideViewPort(v3)  true
+        ('invoke-virtual', {'method': m_setWide, 'regs': [1, 3]}),
+        # v1.setLoadWithOverviewMode(v3)  true
+        ('invoke-virtual', {'method': m_setOverview, 'regs': [1, 3]}),
+        # v1.setAllowFileAccess(v3)  true
+        ('invoke-virtual', {'method': m_setFile, 'regs': [1, 3]}),
+        # v1.setAllowContentAccess(v3)  true
+        ('invoke-virtual', {'method': m_setContent, 'regs': [1, 3]}),
+        # v1.setMediaPlaybackRequiresUserGesture(v4)  false
+        ('invoke-virtual', {'method': m_setMediaGesture, 'regs': [1, 4]}),
+        # v1.setMixedContentMode(v5)  0
+        ('invoke-virtual', {'method': m_setMixed, 'regs': [1, 5]}),
+        # new-instance v2, WebViewClient
+        ('new-instance', {'reg': 2, 'type': t_WebViewClient}),
+        # v2.<init>()
+        ('invoke-direct', {'method': m_WVC_init, 'regs': [2]}),
+        # v0.setWebViewClient(v2)
+        ('invoke-virtual', {'method': m_setWVC, 'regs': [0, 2]}),
+        # const-string v7, url
         ('const-string', {'reg': 7, 'string': s_url}),
-        ('invoke-virtual', {'method': m_loadUrl, 'regs': [2, 7]}),
-        ('invoke-virtual', {'method': m_setContentView, 'regs': [0, 2]}),
+        # v0.loadUrl(v7)
+        ('invoke-virtual', {'method': m_loadUrl, 'regs': [0, 7]}),
+        # v8.setContentView(v0)
+        ('invoke-virtual', {'method': m_setContentView, 'regs': [8, 0]}),
         ('return-void',),
     ])
 

@@ -46,13 +46,19 @@ def build_aligned_apk(entries, out_path, alignment=4):
         header_size = 30 + len(name_bytes)
         data_start = local_header_start + header_size
         
-        # Need alignment padding if STORED
+        # Need alignment padding if STORED.
+        # Use Android/ZIP alignment extra field: header ID 0xd935, size u16, then pad bytes.
+        # Extra field must be well-formed (at least 4 bytes total: 2 id + 2 size).
         extra = b''
         if compress_type == zipfile.ZIP_STORED and data_start % alignment != 0:
-            pad_needed = alignment - (data_start % alignment)
-            extra = b'\x00' * pad_needed
-            # Recalculate data_start after adding extra
+            total_pad = alignment - (data_start % alignment)
+            # We have 4 bytes of extra-field header (id+size); remaining bytes are padding data.
+            pad_data_bytes = total_pad - 4 if total_pad >= 4 else total_pad + alignment - 4
+            # Ensure total extra length makes data_start aligned
+            extra = struct.pack('<HH', 0xD935, pad_data_bytes) + b'\x00' * pad_data_bytes
+            # Recheck
             data_start = local_header_start + 30 + len(name_bytes) + len(extra)
+            assert data_start % alignment == 0, f"alignment failed: extra_len={len(extra)} data_start=0x{data_start:x}"
         
         # Write local file header
         dos_time = 0x5420  # 10:33
@@ -65,9 +71,10 @@ def build_aligned_apk(entries, out_path, alignment=4):
         else:
             external_attr = (0o100644 << 16)
         
+        # Local file header
         lfh = bytearray()
         lfh += struct.pack('<IHHHHHIIIHH',
-            0x04034b50,  # signature
+            0x04034b50,
             ver,
             flags,
             compress_type,

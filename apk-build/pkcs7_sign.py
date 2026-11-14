@@ -108,9 +108,11 @@ def make_pkcs7(cert_der, _sig_unused, sf_bytes, key):
     )
     signer_infos = _tl(0x31, signer_info)  # SET OF
 
-    # Certificates [0] IMPLICIT SET OF Certificate — raw bytes already DER
-    cert_set = _tl(0x31, cert_der)  # SET containing one cert
-    certs_tagged = _tl(0xA0, cert_set[1:])  # IMPLICIT: replace 0x31 tag with 0xA0, keep content
+    # Certificates [0] IMPLICIT SET OF Certificate: the content is the cert
+    # DER bytes directly (no SET tag, no SET length). Stripping only the tag
+    # byte of the SET leaves the length bytes in place and strict parsers
+    # (openssl, Android) reject the PKCS#7 at the certificates field.
+    certs_tagged = _tl(0xA0, cert_der)
 
     # SignedData ::= SEQUENCE { version, digestAlgs, encapContentInfo, [0] certs, signerInfos }
     signed_data = _tl(0x30,

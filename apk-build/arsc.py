@@ -88,7 +88,11 @@ class ResTable:
                 body.append(0)
             else:
                 enc = s.encode('utf-16-le') if isinstance(s, str) else s
-                body.append(len(enc) // 2 & 0xFF)
+                # UTF-16 string length is a uint16 (2 bytes). A single byte
+                # corrupts the pool: the parser reads the length together
+                # with the first character (e.g. "string" -> length 0x7306
+                # = 29446) and fails with "string extends past end".
+                body += u16(len(enc) // 2)
                 body.extend(enc)
                 body.append(0); body.append(0)
         while len(body) % 4: body.append(0)

@@ -19,8 +19,8 @@ WORK = ROOT / 'apk-build'
 
 PKG = 'com.baridat.app'
 APP_NAME_AR = 'بريدات'
-VERSION_CODE = 4
-VERSION_NAME = '1.2.0'
+VERSION_CODE = 5
+VERSION_NAME = '1.2.3'
 
 # Resource IDs
 # Package 0x7F, type 1 = attr, 2 = drawable/mipmap, 3 = string, 4 = style, 5 = xml
@@ -271,6 +271,30 @@ def build_signed_apk():
     return OUT_APK
 
 
+def _load_stable_signing():
+    """Load the stable signing key+cert from BARIDAT_SIGNING_BUNDLE_B64.
+
+    The bundle is base64(key PEM + cert PEM). When set, every build uses the
+    SAME key, so updates install over previous versions. Without it, a fresh
+    ephemeral key is generated per build and the NEXT update would fail the
+    signature check (INSTALL_FAILED_UPDATE_INCOMPATIBLE).
+    Returns (key, cert_der) or None.
+    """
+    import base64 as _b64
+    raw = os.environ.get('BARIDAT_SIGNING_BUNDLE_B64', '')
+    if not raw.strip():
+        return None
+    from cryptography.hazmat.primitives import serialization
+    from cryptography import x509 as _x509
+    bundle = _b64.b64decode(raw)
+    marker = b'-----BEGIN CERTIFICATE-----'
+    k_pem, c_pem = bundle.split(marker, 1)
+    c_pem = marker + c_pem
+    key = serialization.load_pem_private_key(k_pem, password=None)
+    cert = _x509.load_pem_x509_certificate(c_pem)
+    return key, cert.public_bytes(serialization.Encoding.DER)
+
+
 # ---------- V1 JAR signing ----------
 def sign_apk_v1(entries, out_path):
     """Sign entries with JAR v1 signature and write a zipaligned APK.
@@ -284,22 +308,28 @@ def sign_apk_v1(entries, out_path):
     import datetime
     import base64
 
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, 'MA'),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, 'Marrakech'),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'Baridat'),
-        x509.NameAttribute(NameOID.COMMON_NAME, 'Baridat Debug'),
-    ])
-    cert = (x509.CertificateBuilder()
-        .subject_name(subject).issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(days=1))
-        .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365*25))
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
-        .sign(key, hashes.SHA256()))
-    cert_der = cert.public_bytes(serialization.Encoding.DER)
+    stable = _load_stable_signing()
+    if stable is not None:
+        key, cert_der = stable
+        print("  ✓ Using stable signing key (BARIDAT_SIGNING_BUNDLE_B64)")
+    else:
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, 'MA'),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, 'Marrakech'),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, 'Baridat'),
+            x509.NameAttribute(NameOID.COMMON_NAME, 'Baridat Debug'),
+        ])
+        cert = (x509.CertificateBuilder()
+            .subject_name(subject).issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(days=1))
+            .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365*25))
+            .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+            .sign(key, hashes.SHA256()))
+        cert_der = cert.public_bytes(serialization.Encoding.DER)
+        print("  ⚠ No stable signing key set — ephemeral key generated (updates will NOT install over this build)")
 
     def b64(b): return base64.b64encode(b).decode('ascii')
 

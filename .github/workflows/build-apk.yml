@@ -52,7 +52,16 @@ jobs:
         with:
           name: web-dist
           path: dist/
+      - name: Require stable signing key (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if [ -z "${{ secrets.BARIDAT_SIGNING_BUNDLE_B64 }}" ]; then
+            echo "::error::BARIDAT_SIGNING_BUNDLE_B64 secret is not set — tag builds must use the stable key"
+            exit 1
+          fi
       - name: Build APK
+        env:
+          BARIDAT_SIGNING_BUNDLE_B64: ${{ secrets.BARIDAT_SIGNING_BUNDLE_B64 }}
         run: |
           cd apk-build
           python3 mkapk.py 2>&1 | tee /tmp/build.log

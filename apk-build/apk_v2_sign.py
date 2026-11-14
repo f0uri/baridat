@@ -10,9 +10,11 @@ def _u16(v): return struct.pack('<H', v & 0xFFFF)
 def _u32(v): return struct.pack('<I', v & 0xFFFFFFFF)
 def _u64(v): return struct.pack('<Q', v & 0xFFFFFFFFFFFFFFFF)
 
-# Algorithm IDs:
+# Algorithm IDs (APK Signature Scheme v2):
+# 0x0103 = RSASSA-PKCS1-v1_5 with SHA2-256 digest. (0x0101 is RSASSA-PSS,
+# a different scheme — do not use it for PKCS#1 v1.5 signatures.)
+# The digest entry and the signature entry both carry this combined ID.
 ALGO_SHA256_RSA = 0x0103
-ALGO_SHA256 = 0x03  # digest for chunk
 
 
 def _length_prefix_bytes(data):
@@ -20,19 +22,34 @@ def _length_prefix_bytes(data):
 
 
 def _pair(id_, value_bytes):
-    """ID-value pair (uint32 id + value bytes prefixed with uint32 length)."""
-    return _u32(id_) + _u32(len(value_bytes)) + value_bytes
+    """ID-value pair in the APK Signing Block: uint64 size (= 4 + len(value))
+    + uint32 id + value. (NOT uint32 id + uint32 length + value — that format
+    makes the block unfindable: the parser reads the id as the size.)"""
+    return _u64(4 + len(value_bytes)) + _u32(id_) + value_bytes
 
 
-def _compute_data_digest(data, chunk_size=1024*1024):
-    """Split data into 1MB chunks, compute SHA-256 of each, then hash the concatenation."""
-    h = hashlib.sha256()
+def _leaf_digests(data, chunk_size=1024*1024):
+    """Leaf digests per APK Signature Scheme v2 (two-level Merkle tree):
+    split the section into 1MB chunks; each chunk's digest is
+    SHA-256(0xA5 || uint32LE(chunk_len) || chunk)."""
+    digests = []
     i = 0
     while i < len(data):
         chunk = data[i:i+chunk_size]
-        h.update(hashlib.sha256(chunk).digest())
+        digests.append(hashlib.sha256(b'\xa5' + _u32(len(chunk)) + chunk).digest())
         i += chunk_size
-    return h.digest()
+    return digests
+
+
+def _content_digest(before_cd, cd_data, eocd_no_comment):
+    """Top-level digest: SHA-256(0x5A || uint32LE(total chunk count) ||
+    concatenation of all leaf digests, sections in order: contents,
+    central directory, EOCD). Verified byte-for-byte against apksigner
+    output (IG SAVE 1.57 and 1.72)."""
+    leaves = (_leaf_digests(before_cd)
+              + _leaf_digests(cd_data)
+              + _leaf_digests(eocd_no_comment))
+    return hashlib.sha256(b'\x5a' + _u32(len(leaves)) + b''.join(leaves)).digest()
 
 
 def _build_signer_block(key, cert_der, digests):
@@ -51,11 +68,14 @@ def _build_signer_block(key, cert_der, digests):
         __import__('cryptography.hazmat.primitives.serialization', fromlist=['serialization']).PublicFormat.SubjectPublicKeyInfo,
     )
 
-    # Build digests
+    # Build digests. The digests field is a length-prefixed sequence whose
+    # content is itself length-prefixed: [u32 outer][u32 inner][pairs].
+    # A single wrap makes the verifier read the algorithm ID as a length
+    # and find zero digests.
     digests_data = b''
     for algo_id, digest in digests:
         digests_data += _u32(algo_id) + _length_prefix_bytes(digest)
-    digests_section = _length_prefix_bytes(digests_data)
+    digests_section = _length_prefix_bytes(_length_prefix_bytes(digests_data))
 
     # Certificates
     certs_section = _length_prefix_bytes(_length_prefix_bytes(cert_der))
@@ -66,13 +86,14 @@ def _build_signer_block(key, cert_der, digests):
     signed_data = digests_section + certs_section + add_attrs
     signed_data_prefixed = _length_prefix_bytes(signed_data)
 
-    # Sign signed_data with SHA-256 + PKCS1v15
+    # Sign signed_data with SHA-256 + PKCS1v15 (algorithm 0x0101).
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import padding
     signature = key.sign(signed_data, padding.PKCS1v15(), hashes.SHA256())
 
+    # Signatures field: same double wrap as digests.
     sigs_data = _u32(ALGO_SHA256_RSA) + _length_prefix_bytes(signature)
-    sigs_section = _length_prefix_bytes(sigs_data)
+    sigs_section = _length_prefix_bytes(_length_prefix_bytes(sigs_data))
 
     pub_section = _length_prefix_bytes(pub_key_der)
 
@@ -102,19 +123,14 @@ def add_v2_signature(apk_path, key, cert_der):
     cd_data = data[cd_start:eocd_pos]
     eocd_data = eocd  # original EOCD (includes comment)
 
-    # Compute digests of three sections
-    digest = hashlib.sha256()
-    # 1. Contents (before_cd)
-    digest.update(_compute_data_digest(before_cd, 1024*1024))
-    # 2. Central directory (cd_data)
-    digest.update(_compute_data_digest(cd_data, 1024*1024))
-    # 3. EOCD (without the comment and the 22 bytes of EOCD header? — actually scheme v2 hashes eocd except its comment field)
+    # Compute the v2 content digest (two-level Merkle tree, see
+    # _content_digest). The EOCD is hashed with the central-directory offset
+    # as it was BEFORE the signing block was inserted.
     eocd_no_comment = eocd[:22]
-    digest.update(_compute_data_digest(eocd_no_comment, 1024*1024))
-    content_digest = digest.digest()
+    content_digest = _content_digest(before_cd, cd_data, eocd_no_comment)
 
     # Build signer block
-    signer = _build_signer_block(key, cert_der, [(ALGO_SHA256, content_digest)])
+    signer = _build_signer_block(key, cert_der, [(ALGO_SHA256_RSA, content_digest)])
     signers_section = _length_prefix_bytes(signer)
 
     # APK Signing Block v2 (id = 0x7109871a)

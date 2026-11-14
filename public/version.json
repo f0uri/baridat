@@ -1,8 +1,8 @@
 {
-  "version": "1.2.7",
-  "versionCode": 9,
+  "version": "1.2.8",
+  "versionCode": 10,
   "apkUrl": "baridat.apk",
-  "releaseNotes": "إصلاح بايت كود DEX وحقل ZIP — التطبيق يتثبّت الآن.",
-  "updatedAt": "2026-11-14T21:55:00Z",
+  "releaseNotes": "إصلاحات إضافية: إزالة ملفات res/ غير المسجلة، تصحيح قيم البوليان، مراجع أيقونة/ثيم إطار العمل — يُرجى التجربة.",
+  "updatedAt": "2026-11-14T23:50:35Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

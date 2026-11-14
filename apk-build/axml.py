@@ -195,7 +195,7 @@ def build_manifest(pkg, app_name_label_res, version_code, version_name,
         x.attr('theme', None, NS, dtype=0x01, raw=theme_ref),
         x.a('usesCleartextTraffic', 0xFFFFFFFF, dtype=0x12),
         x.a('hardwareAccelerated', 0xFFFFFFFF, dtype=0x12),
-        x.a('allowBackup', 1, dtype=0x12),
+        x.a('allowBackup', 0xFFFFFFFF, dtype=0x12),  # canonical boolean true
         x.a('supportsRtl', 0xFFFFFFFF, dtype=0x12),
         # NOTE: no networkSecurityConfig attribute — the resource 0x7F040000
         # it used to point at was never registered in resources.arsc, so the

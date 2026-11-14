@@ -19,8 +19,8 @@ WORK = ROOT / 'apk-build'
 
 PKG = 'com.baridat.app'
 APP_NAME_AR = 'بريدات'
-VERSION_CODE = 7
-VERSION_NAME = '1.2.5'
+VERSION_CODE = 8
+VERSION_NAME = '1.2.6'
 
 # Resource IDs
 # Package 0x7F, type 1 = attr, 2 = drawable/mipmap, 3 = string, 4 = style, 5 = xml

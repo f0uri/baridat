@@ -1,8 +1,8 @@
 {
-  "version": "1.2.5",
-  "versionCode": 7,
+  "version": "1.2.6",
+  "versionCode": 8,
   "apkUrl": "baridat.apk",
-  "releaseNotes": "توقيع v2 فقط — إزالة توقيع v1 الذي كان المثبّت يرفضه.",
-  "updatedAt": "2026-11-14T20:20:00Z",
+  "releaseNotes": "إصلاح خريطة ملف DEX — التطبيق يتثبّت الآن.",
+  "updatedAt": "2026-11-14T20:35:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

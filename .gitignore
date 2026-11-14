@@ -1,0 +1,11 @@
+node_modules/
+apk-build/work/
+apk-build/unsigned.apk
+npm-debug.log*
+.DS_Store
+*.log
+.cache/
+.vite/
+__pycache__/
+*.pyc
+dist/

@@ -27,6 +27,8 @@ jobs:
         run: npm run build
       - name: Copy version.json to dist
         run: cp public/version.json dist/version.json
+      - name: List dist
+        run: ls -la dist/
       - name: Upload web build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -44,33 +46,31 @@ jobs:
           python-version: '3.11'
       - name: Install Python dependencies
         run: pip install cryptography pyasn1 pyasn1-modules
+      - name: Verify python packages
+        run: python3 -c "import cryptography; import pyasn1; import pyasn1_modules; print('python deps OK')"
       - name: Download web artifact
         uses: actions/download-artifact@v4
         with:
           name: web-dist
           path: dist/
-      - name: List files (debug)
-        run: ls -la dist/ && ls -la apk-build/
+      - name: List repo files
+        run: ls -la && echo "---dist---" && ls -la dist/
       - name: Build APK
         run: |
+          set -x
           cd apk-build
-          python3 mkapk.py
+          python3 mkapk.py 2>&1
           ls -la ../baridat.apk
-          cd ..
-          cp baridat.apk baridat-${GITHUB_REF_NAME#v}.apk || true
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: baridat-apk
           path: baridat.apk
+          if-no-files-found: warn
       - name: Create Release & upload APK (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && success()
         uses: softprops/action-gh-release@v2
         with:
           files: baridat.apk
           generate_release_notes: true
-          body: |
-            ## ✨ بريدات — Baridat
-            تحديث جديد لتطبيق البريد المؤقت.
-
-            **baridat.apk** مرفق أسفل الصفحة.

@@ -1,8 +1,8 @@
 {
-  "version": "1.2.4",
-  "versionCode": 6,
+  "version": "1.2.5",
+  "versionCode": 7,
   "apkUrl": "baridat.apk",
-  "releaseNotes": "إصلاح مرجع networkSecurityConfig غير الموجود — التطبيق يتثبّت الآن.",
-  "updatedAt": "2026-11-14T19:55:00Z",
+  "releaseNotes": "توقيع v2 فقط — إزالة توقيع v1 الذي كان المثبّت يرفضه.",
+  "updatedAt": "2026-11-14T20:20:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

@@ -129,7 +129,13 @@ class AXML:
             elif t == 'start_tag':
                 _, ni, attrs = ev
                 n = len(attrs)
-                HEADER = 0x24
+                # AOSP: headerSize is the ResXMLTree_node header only (16 bytes:
+                # chunk header 8 + lineNumber 4 + comment 4). The attrExt
+                # (ns/name/attrStart/...) is body, NOT header. A larger
+                # headerSize makes the parser read the first attribute as the
+                # element itself ("package" instead of "manifest") and the
+                # install fails with "problem parsing the package".
+                HEADER = 0x10
                 body = bytearray()
                 body += u32(0)  # line no
                 body += u32(-1 & 0xFFFFFFFF)  # comment (-1)
@@ -149,7 +155,8 @@ class AXML:
                 out += chunk(RES_XML_START_ELEMENT, HEADER, bytes(body))
             elif t == 'end_tag':
                 _, ni = ev
-                HEADER = 0x18
+                # Same as start_tag: headerSize is the node header only (16).
+                HEADER = 0x10
                 body = u32(0) + u32(-1 & 0xFFFFFFFF) + u32(0xFFFFFFFF) + u32(ni)
                 out += chunk(RES_XML_END_ELEMENT, HEADER, body)
         return bytes(out)

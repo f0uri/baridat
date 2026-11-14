@@ -1,6 +1,10 @@
 """
-Minimal Android Binary XML (AXML) encoder.
-Supports what we need for AndroidManifest.xml.
+Minimal Android Binary XML (AXML) encoder for AndroidManifest.xml.
+
+Every chunk starts with ResChunk_header (8 bytes):
+  uint16 type;
+  uint16 headerSize;
+  uint32 size;
 """
 import struct
 
@@ -8,190 +12,163 @@ def u8(v): return struct.pack('<B', v & 0xFF)
 def u16(v): return struct.pack('<H', v & 0xFFFF)
 def u32(v): return struct.pack('<I', v & 0xFFFFFFFF)
 
-class Pool:
-    UTF8 = 0x100
-    def __init__(self):
-        self.slist = []
-        self.smap = {}
-    def add(self, s):
-        if s not in self.smap:
-            self.smap[s] = len(self.slist)
-            self.slist.append(s)
-        return self.smap[s]
-    def get(self, s):
-        return self.smap.get(s, -1)
-    def build(self):
-        # String pool starts with header, then offsets, then string bytes
-        HEADER = 28
-        offsets = []
-        body = bytearray()
-        for s in self.slist:
-            offsets.append(len(body))
-            # UTF-8 encoding: two length bytes (utf16len, utf8len), then bytes, then NUL
-            enc = s.encode('utf-8')
-            utflen = len(s.encode('utf-16-le')) // 2
-            # encode lengths as uleb128 (single byte for lengths < 128)
-            body.append(utflen & 0x7F)
-            body.append(len(enc) & 0x7F)
-            body.extend(enc)
-            body.append(0)  # null terminator
-        while len(body) % 4: body.append(0)
-        off_start = HEADER + 4 * len(self.slist)
-        out = bytearray()
-        out += u32(0x001C0001)  # chunk type
-        out += u32(HEADER + 4*len(self.slist) + len(body))
-        out += u32(len(self.slist))
-        out += u32(0)  # styles
-        out += u32(self.UTF8)
-        out += u32(off_start - 28 + 28)  # strings start (offset from chunk start to strings data)
-        out += u32(0)  # styles start
-        for o in offsets:
-            out += u32(off_start + o)
-        out += body
-        return bytes(out)
+
+def chunk(type_id, header_size, body_bytes):
+    """Build a chunk: type(u16) headerSize(u16) size(u32) + [header fields beyond first 8] + body.
+
+    The caller must pass ALL bytes after the 8-byte ResChunk_header as body_bytes,
+    i.e. body_bytes includes (headerSize - 8) bytes of fixed header fields, followed by
+    the variable-length body.
+    Total chunk size = 8 + len(body_bytes)
+    """
+    total_size = 8 + len(body_bytes)
+    return u16(type_id) + u16(header_size) + u32(total_size) + body_bytes
+
+
+# Chunk types
+RES_STRING_POOL_TYPE = 0x0001
+RES_XML_TYPE = 0x0003
+RES_XML_START_NS = 0x0100
+RES_XML_END_NS = 0x0101
+RES_XML_START_ELEMENT = 0x0102
+RES_XML_END_ELEMENT = 0x0103
+RES_XML_RESOURCE_MAP = 0x0180
 
 
 class AXML:
-    CHUNK_AXML = 0x00080003
-    CHUNK_RESIDS = 0x00180180
-    CHUNK_START_NS = 0x00100100
-    CHUNK_END_NS = 0x00100101
-    CHUNK_START_TAG = 0x00100102
-    CHUNK_END_TAG = 0x00100103
-
-    # Known Android attribute resource IDs
     ANDROID_ATTRS = {
-        'theme': 0x01010000,
-        'label': 0x01010001,
-        'icon': 0x01010002,
-        'name': 0x01010003,
-        'value': 0x01010024,
-        'configChanges': 0x0101001f,
-        'launchMode': 0x0101001d,
-        'screenOrientation': 0x0101001e,
-        'minSdkVersion': 0x0101020c,
-        'targetSdkVersion': 0x01010270,
-        'versionCode': 0x0101021b,
-        'versionName': 0x0101021c,
-        'hardwareAccelerated': 0x01010261,
-        'allowBackup': 0x01010280,
-        'usesCleartextTraffic': 0x01010478,
-        'exported': 0x010104e3,
-        'networkSecurityConfig': 0x01010545,
-        'supportsRtl': 0x010103af,
+        'theme': 0x01010000, 'label': 0x01010001, 'icon': 0x01010002,
+        'name': 0x01010003, 'configChanges': 0x0101001f,
+        'launchMode': 0x0101001d, 'screenOrientation': 0x0101001e,
+        'minSdkVersion': 0x0101020c, 'targetSdkVersion': 0x01010270,
+        'versionCode': 0x0101021b, 'versionName': 0x0101021c,
+        'hardwareAccelerated': 0x01010261, 'allowBackup': 0x01010280,
+        'usesCleartextTraffic': 0x01010478, 'exported': 0x010104e3,
+        'networkSecurityConfig': 0x01010545, 'supportsRtl': 0x010103af,
     }
 
     def __init__(self):
-        self.pool = Pool()
+        self.pool = []
+        self.pmap = {}
         self.events = []
 
-    def add_ns(self, prefix, uri):
-        self.pool.add(prefix); self.pool.add(uri)
-        return (self.pool.get(prefix), self.pool.get(uri))
+    def s(self, v):
+        if v not in self.pmap:
+            self.pmap[v] = len(self.pool)
+            self.pool.append(v)
+        return self.pmap[v]
 
     def start_ns(self, prefix, uri):
-        self.events.append(('start_ns', self.add_ns(prefix, uri)))
+        self.events.append(('start_ns', self.s(prefix), self.s(uri)))
     def end_ns(self, prefix, uri):
-        self.events.append(('end_ns', self.add_ns(prefix, uri)))
+        self.events.append(('end_ns', self.s(prefix), self.s(uri)))
 
-    def _attr(self, name, value, ns_uri=None, dtype=0x03):
-        """dtype: 0x03=string, 0x0F=reference, 0x10=int, 0x12=bool int."""
-        name_idx = self.pool.add(name)
-        if ns_uri:
-            ns_idx = self.pool.add(ns_uri)
+    def attr(self, name, val, ns_uri=None, dtype=0x03, raw=None):
+        ni = self.s(name)
+        nsi = self.s(ns_uri) if ns_uri else 0xFFFFFFFF
+        if dtype == 0x03 and isinstance(val, str):
+            vi = self.s(val); data = vi
         else:
-            ns_idx = -1
-        if dtype == 0x03:  # string
-            val_idx = self.pool.add(str(value))
-            data = val_idx
-        else:
-            val_idx = -1
-            data = int(value)
-        return {'ns': ns_idx, 'name': name_idx, 'raw': val_idx, 'type': dtype, 'data': data}
+            vi = raw if raw is not None else 0xFFFFFFFF
+            data = val if isinstance(val, int) else (raw if raw is not None else 0)
+        return (nsi, ni, vi, dtype, data)
 
-    def start_tag(self, name, attrs=None, ns_uri=None):
-        ns_idx = self.pool.add(ns_uri) if ns_uri else -1
-        name_idx = self.pool.add(name)
-        self.events.append(('start_tag', (ns_idx, name_idx, attrs or [])))
+    def a(self, name, val, dtype=0x03):
+        return self.attr(name, val, 'http://schemas.android.com/apk/res/android', dtype)
 
-    def end_tag(self, name, ns_uri=None):
-        ns_idx = self.pool.add(ns_uri) if ns_uri else -1
-        name_idx = self.pool.add(name)
-        self.events.append(('end_tag', (ns_idx, name_idx)))
+    def start_tag(self, name, attrs=None):
+        self.events.append(('start_tag', self.s(name), attrs or []))
+    def end_tag(self, name):
+        self.events.append(('end_tag', self.s(name)))
 
-    def a(self, name, value, dtype=0x03):
-        return self._attr(name, value, 'http://schemas.android.com/apk/res/android', dtype)
+    def _build_string_pool(self):
+        HEADER = 28
+        UTF8 = 0x100
+        offsets = []
+        body = bytearray()
+        for s in self.pool:
+            offsets.append(len(body))
+            enc = s.encode('utf-8')
+            utflen = len(s.encode('utf-16-le')) // 2
+            body.append(utflen & 0x7F)
+            body.append(len(enc) & 0x7F)
+            body.extend(enc)
+            body.append(0)
+        while len(body) % 4: body.append(0)
+        strings_start = HEADER + 4 * len(self.pool)  # offset relative to chunk start
+        fixed = bytearray()
+        fixed += u32(len(self.pool))
+        fixed += u32(0)  # styles
+        fixed += u32(UTF8)
+        fixed += u32(strings_start)
+        fixed += u32(0)  # styles start
+        for o in offsets:
+            fixed += u32(o)
+        fixed += body
+        return chunk(RES_STRING_POOL_TYPE, HEADER, bytes(fixed))
 
-    def build(self):
-        pool_bytes = self.pool.build()
-        # Build resource IDs in string order
-        res_ids = bytearray()
-        for s in self.pool.slist:
-            rid = self.ANDROID_ATTRS.get(s, 0)
-            res_ids += u32(rid)
-        res_chunk = bytearray()
-        if res_ids:
-            res_chunk += u32(self.CHUNK_RESIDS)
-            res_chunk += u32(8 + len(res_ids))
-            res_chunk += res_ids
-            while len(res_chunk) % 4: res_chunk.append(0)
+    def _build_resource_map(self):
+        # headerSize = 8
+        resids = [self.ANDROID_ATTRS.get(s, 0) for s in self.pool]
+        body = b''.join(u32(r) for r in resids)
+        return chunk(RES_XML_RESOURCE_MAP, 8, body)
 
-        # Build events
-        ev = bytearray()
-        for typ, d in self.events:
-            if typ == 'start_ns':
-                p, u = d
-                ev += u32(self.CHUNK_START_NS)
-                ev += u32(0x18)
-                ev += u32(0); ev += u32(-1 & 0xFFFFFFFF)
-                ev += u32(p); ev += u32(u)
-            elif typ == 'end_ns':
-                p, u = d
-                ev += u32(self.CHUNK_END_NS)
-                ev += u32(0x18)
-                ev += u32(0); ev += u32(-1 & 0xFFFFFFFF)
-                ev += u32(p); ev += u32(u)
-            elif typ == 'start_tag':
-                ns_idx, name_idx, attrs = d
-                ATTR_SIZE = 20
-                ATTR_START = 0x24
-                size = ATTR_START + ATTR_SIZE * len(attrs)
-                ev += u32(self.CHUNK_START_TAG)
-                ev += u32(size)
-                ev += u32(0); ev += u32(-1 & 0xFFFFFFFF)
-                ev += u32(ns_idx); ev += u32(name_idx)
-                ev += u32(0x14)  # attributeStart=0x14?
-                ev += u16(ATTR_SIZE); ev += u16(len(attrs))
-                ev += u16(0); ev += u16(0); ev += u16(0)  # id/class/style indices
-                ev += u32(0)  # pad to 0x24
-                for a in attrs:
-                    ev += u32(a['ns'])
-                    ev += u32(a['name'])
-                    ev += u32(a['raw'])
-                    ev += u16(8); ev += u8(0); ev += u8(a['type'])
-                    ev += u32(a['data'])
-            elif typ == 'end_tag':
-                ns_idx, name_idx = d
-                ev += u32(self.CHUNK_END_TAG)
-                ev += u32(0x18)
-                ev += u32(0); ev += u32(-1 & 0xFFFFFFFF)
-                ev += u32(ns_idx); ev += u32(name_idx)
-
-        total = 8 + len(pool_bytes) + len(res_chunk) + len(ev)
+    def _build_events(self):
         out = bytearray()
-        out += u32(self.CHUNK_AXML); out += u32(total)
-        out += pool_bytes
-        out += res_chunk
-        out += ev
+        for ev in self.events:
+            t = ev[0]
+            if t == 'start_ns':
+                _, pi, ui = ev
+                # ResXmlNamespaceStart: prefix(4), uri(4) after line+comment (8)
+                body = u32(0) + u32(-1 & 0xFFFFFFFF) + u32(pi) + u32(ui)
+                out += chunk(RES_XML_START_NS, 0x10, body)
+            elif t == 'end_ns':
+                _, pi, ui = ev
+                body = u32(0) + u32(-1 & 0xFFFFFFFF) + u32(pi) + u32(ui)
+                out += chunk(RES_XML_END_NS, 0x10, body)
+            elif t == 'start_tag':
+                _, ni, attrs = ev
+                n = len(attrs)
+                HEADER = 0x24
+                body = bytearray()
+                body += u32(0)  # line no
+                body += u32(-1 & 0xFFFFFFFF)  # comment (-1)
+                body += u32(0xFFFFFFFF)  # ns (-1 = none)
+                body += u32(ni)
+                body += u16(0x14)  # attributeStart (offset 20 from start of element = 20 bytes in: after ns+name)
+                body += u16(20)   # attributeSize
+                body += u16(n)
+                body += u16(0); body += u16(0); body += u16(0)
+                for (nsi, a_i, vi, dtype, data) in attrs:
+                    body += u32(nsi)
+                    body += u32(a_i)
+                    body += u32(vi)
+                    body += u16(8); body += u8(0); body += u8(dtype)
+                    body += u32(data)
+                while len(body) % 4: body.append(0)
+                out += chunk(RES_XML_START_ELEMENT, HEADER, bytes(body))
+            elif t == 'end_tag':
+                _, ni = ev
+                HEADER = 0x18
+                body = u32(0) + u32(-1 & 0xFFFFFFFF) + u32(0xFFFFFFFF) + u32(ni)
+                out += chunk(RES_XML_END_ELEMENT, HEADER, body)
         return bytes(out)
 
+    def build(self):
+        sp = self._build_string_pool()
+        rm = self._build_resource_map()
+        ev = self._build_events()
+        # ResXmlTree_start headerSize = 8 (no extra fields)
+        return chunk(RES_XML_TYPE, 8, b'' + sp + rm + ev)
 
-def build_manifest(pkg, app_name, version_code, version_name, icon_ref, theme_ref, netsec_ref):
+
+def build_manifest(pkg, app_name_label_res, version_code, version_name,
+                   icon_ref, theme_ref, netsec_ref):
     x = AXML()
     NS = 'http://schemas.android.com/apk/res/android'
     x.start_ns('android', NS)
     x.start_tag('manifest', [
-        x._attr('package', pkg),
+        x.attr('package', pkg),
         x.a('versionCode', version_code, dtype=0x10),
         x.a('versionName', version_name, dtype=0x03),
     ])
@@ -206,14 +183,14 @@ def build_manifest(pkg, app_name, version_code, version_name, icon_ref, theme_re
     x.end_tag('uses-permission')
 
     x.start_tag('application', [
-        x.a('label', app_name),
-        x._attr('icon', icon_ref, NS, dtype=0x0F),
-        x._attr('theme', theme_ref, NS, dtype=0x0F),
+        x.attr('label', None, NS, dtype=0x01, raw=app_name_label_res),
+        x.attr('icon', None, NS, dtype=0x01, raw=icon_ref),
+        x.attr('theme', None, NS, dtype=0x01, raw=theme_ref),
         x.a('usesCleartextTraffic', 0xFFFFFFFF, dtype=0x12),
         x.a('hardwareAccelerated', 0xFFFFFFFF, dtype=0x12),
         x.a('allowBackup', 1, dtype=0x12),
         x.a('supportsRtl', 0xFFFFFFFF, dtype=0x12),
-        x._attr('networkSecurityConfig', netsec_ref, NS, dtype=0x0F),
+        x.attr('networkSecurityConfig', None, NS, dtype=0x01, raw=netsec_ref),
     ])
 
     x.start_tag('activity', [
@@ -221,7 +198,6 @@ def build_manifest(pkg, app_name, version_code, version_name, icon_ref, theme_re
         x.a('exported', 0xFFFFFFFF, dtype=0x12),
         x.a('configChanges', 0x04B0, dtype=0x10),
         x.a('launchMode', 1, dtype=0x10),
-        x.a('screenOrientation', 0xFFFFFFFF, dtype=0x10),
     ])
     x.start_tag('intent-filter')
     x.start_tag('action', [x.a('name', 'android.intent.action.MAIN')])
@@ -230,7 +206,6 @@ def build_manifest(pkg, app_name, version_code, version_name, icon_ref, theme_re
     x.end_tag('category')
     x.end_tag('intent-filter')
     x.end_tag('activity')
-
     x.end_tag('application')
     x.end_tag('manifest')
     x.end_ns('android', NS)

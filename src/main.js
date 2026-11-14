@@ -359,10 +359,32 @@ async function registerSW() {
       });
     });
 
-    // check update every 30 min
+    // Check version.json against GitHub for new releases
+    async function checkGitHubRelease() {
+      try {
+        const res = await fetch('/version.json', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.version && data.version !== APP_VERSION) {
+          const newVer = data.version;
+          updateBanner.hidden = false;
+          document.querySelector('#updateBanner span').textContent =
+            `يتوفر إصدار جديد ${newVer}`;
+          document.getElementById('updateBtn').onclick = () => {
+            // Download APK if mobile, else reload
+            if (/Android/i.test(navigator.userAgent)) {
+              window.location.href = data.apkUrl || 'baridat.apk';
+            } else {
+              window.location.reload();
+            }
+          };
+        }
+      } catch (e) { /* offline */ }
+    }
+    checkGitHubRelease();
     setInterval(() => reg.update(), 30 * 60 * 1000);
-    // and on focus
-    window.addEventListener('focus', () => reg.update());
+    setInterval(checkGitHubRelease, 60 * 60 * 1000);
+    window.addEventListener('focus', () => { reg.update(); checkGitHubRelease(); });
 
     $('updateBtn').addEventListener('click', () => {
       if (reg.waiting) {

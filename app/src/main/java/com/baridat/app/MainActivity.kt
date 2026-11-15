@@ -1,11 +1,9 @@
 package com.baridat.app
 
 import android.annotation.SuppressLint
-import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
-import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -14,11 +12,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-
-class NativeBridge {
-    @JavascriptInterface
-    fun getAppVersion(): String = "2.1.0"
-}
 
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
@@ -52,7 +45,7 @@ class MainActivity : AppCompatActivity() {
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
 
-        web.addJavascriptInterface(NativeBridge(), "BaridatNative")
+        web.addJavascriptInterface(NativeBridge(this), "BaridatNative")
 
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")

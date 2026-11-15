@@ -44,6 +44,11 @@ class MainActivity : AppCompatActivity() {
         s.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
+        s.builtInZoomControls = false
+        s.displayZoomControls = false
+        // Prevent the user's system font-size setting from scaling the layout
+        // (causes clipping / overlap on some devices, e.g. Tecno Spark 40 Pro).
+        s.textZoom = 100
 
         web.addJavascriptInterface(NativeBridge(this), "BaridatNative")
 

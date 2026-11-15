@@ -2,8 +2,6 @@ package com.baridat.app
 
 import android.annotation.SuppressLint
 import android.os.Bundle
-import android.view.View
-import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -20,7 +18,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Edge-to-edge (works on all API levels via AndroidX)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.isAppearanceLightStatusBars = false
@@ -40,17 +37,20 @@ class MainActivity : AppCompatActivity() {
         s.loadWithOverviewMode = true
         s.allowFileAccess = true
         s.allowContentAccess = true
+        s.allowFileAccessFromFileURLs = true
+        s.allowUniversalAccessFromFileURLs = true
         s.mediaPlaybackRequiresUserGesture = false
-        s.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+        s.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
         s.builtInZoomControls = false
         s.displayZoomControls = false
-        // Prevent the user's system font-size setting from scaling the layout
-        // (causes clipping / overlap on some devices, e.g. Tecno Spark 40 Pro).
         s.textZoom = 100
+        s.cacheMode = WebSettings.LOAD_NO_CACHE
 
-        web.addJavascriptInterface(NativeBridge(this), "BaridatNative")
+        val bridge = NativeBridge(this)
+        web.addJavascriptInterface(bridge, "BaridatNative")
+        bridge.attachWebView(web)
 
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")

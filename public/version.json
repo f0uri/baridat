@@ -1,8 +1,8 @@
 {
-  "version": "2.1.1",
-  "versionCode": 22,
+  "version": "2.1.2",
+  "versionCode": 23,
   "apkUrl": "https://github.com/f0uri/baridat/releases/latest/download/baridat.apk",
-  "releaseNotes": "إصلاح القائمة الجانبية + عرض النسخة.",
-  "updatedAt": "2026-11-15T11:00:00Z",
+  "releaseNotes": "واجهة نظيفة + بريد يعمل عبر الجسر الأصلي + إصلاح القائمة الجانبية نهائياً.",
+  "updatedAt": "2026-11-15T12:00:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

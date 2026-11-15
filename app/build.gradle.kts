@@ -15,16 +15,34 @@ android {
     }
 
     signingConfigs {
-        // Stable signing key placed at signing/baridat.jks by CI for tag builds.
-        // When the keystore is absent (local dev / PR builds), Gradle falls back to
-        // its auto-generated debug keystore automatically.
-        create("stable") {
-            val f = rootProject.file("signing/baridat.jks")
-            if (f.exists()) {
-                storeFile = f
-                storePassword = (System.getenv("BARIDAT_KEYSTORE_PASSWORD") ?: "baridat2026")
-                keyAlias = (System.getenv("BARIDAT_KEY_ALIAS") ?: "baridat")
-                keyPassword = (System.getenv("BARIDAT_KEY_PASSWORD") ?: "baridat2026")
+        create("release") {
+            val keystoreFile = rootProject.file("signing/baridat.jks")
+            val debugFile = rootProject.file("debug.keystore")
+            val chosen = when {
+                keystoreFile.exists() -> keystoreFile
+                debugFile.exists() -> debugFile
+                else -> null
+            }
+            if (chosen != null) {
+                storeFile = chosen
+                if (chosen.name == "baridat.jks") {
+                    storePassword = System.getenv("BARIDAT_KEYSTORE_PASSWORD") ?: "baridat2026"
+                    keyAlias = System.getenv("BARIDAT_KEY_ALIAS") ?: "baridat"
+                    keyPassword = System.getenv("BARIDAT_KEY_PASSWORD") ?: "baridat2026"
+                } else {
+                    storePassword = "android"
+                    keyAlias = "androiddebugkey"
+                    keyPassword = "android"
+                }
+            }
+        }
+        getByName("debug") {
+            val releaseCfg = signingConfigs.getByName("release")
+            if (releaseCfg.storeFile != null) {
+                storeFile = releaseCfg.storeFile
+                storePassword = releaseCfg.storePassword
+                keyAlias = releaseCfg.keyAlias
+                keyPassword = releaseCfg.keyPassword
             }
         }
     }
@@ -32,14 +50,12 @@ android {
     buildTypes {
         getByName("debug") {
             isMinifyEnabled = false
-            val stable = signingConfigs.findByName("stable")
-            if (stable?.storeFile != null) signingConfig = stable
+            signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
             isMinifyEnabled = false
             isShrinkResources = false
-            val stable = signingConfigs.findByName("stable")
-            signingConfig = if (stable?.storeFile != null) stable else signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

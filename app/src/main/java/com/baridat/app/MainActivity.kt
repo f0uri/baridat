@@ -3,10 +3,8 @@ package com.baridat.app
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.View
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -19,7 +17,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
@@ -88,7 +85,7 @@ class MainActivity : AppCompatActivity() {
         s.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
-        s.userAgentString = s.userAgentStringString + " Baridat/" + BuildConfig.VERSION_NAME
+        s.userAgentString = (s.userAgentString ?: "") + " Baridat/" + BuildConfig.VERSION_NAME
         s.allowUniversalAccessFromFileURLs = false
         s.allowFileAccessFromFileURLs = false
 

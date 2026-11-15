@@ -1,4 +1,4 @@
-const CACHE = 'baridat-cache-v3';
+const CACHE = 'baridat-cache-v4';
 const OFFLINE_URL = '/';
 const ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png'];
 
@@ -30,7 +30,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-  // Don't cache API calls to mail.tm
+  // Do not cache cross-origin mail API responses or session tokens.
   if (url.origin !== self.location.origin) return;
 
   if (req.mode === 'navigate') {

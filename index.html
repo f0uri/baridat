@@ -1,51 +1,38 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" data-theme="dark">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#6d28d9">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#100b20">
 <link rel="icon" type="image/svg+xml" href="./icon.svg">
+<link rel="manifest" href="./manifest.webmanifest">
 <title>بريدات — بريد مؤقت</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap">
 </head>
 <body>
 <div id="app">
+  <div id="updateBanner" class="ub" role="status"><span class="ub-txt">يتوفر إصدار جديد</span><button id="updateBtn">تحديث</button><button id="updateClose" aria-label="إغلاق">×</button></div>
   <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
-  <div class="orb o1"></div><div class="orb o2"></div>
-
-  <!-- Update banner (OTA) -->
-  <div id="updateBanner" class="ub" role="alert">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-    <span class="ub-txt">يتوفر إصدار جديد</span>
-    <button id="updateBtn">تحديث</button>
-    <button id="updateClose" aria-label="إغلاق"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-  </div>
-
-  <header class="nb" id="nb"><span id="nt">الوارد</span></header>
-
-  <main id="view"></main>
-
-  <nav class="tabs" aria-label="التنقل">
-    <button class="on" data-tab="0">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 4 8 6 8-6"/><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 7L2 7"/></svg>
-      <span>الوارد</span><b class="bd" id="bd"></b>
-    </button>
-    <button data-tab="1">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>
-      <span>العناوين</span>
-    </button>
-    <button data-tab="2">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      <span>الإعدادات</span>
-    </button>
-  </nav>
-
+  <main id="view" class="ent">
+    <div class="lt"><div><div class="eyebrow">GUERRILLA MAIL</div><h1>بريدات <span>✦</span></h1></div><span class="private-label">بريد مؤقت</span></div>
+    <section class="hero">
+      <div class="hl"><span id="statusDot" class="live"></span><span id="statusText" role="status">جاري الاتصال…</span></div>
+      <div class="hero-label">عنوان بريدك المؤقت</div><div id="address" class="addr" dir="ltr"></div>
+      <div class="domain-control"><label for="domainSelect">نطاق البريد</label><select id="domainSelect" dir="ltr" aria-label="نطاق البريد"></select></div>
+      <p class="hero-note">عنوان جاهز لاستقبال رسائلك، بدون بريدك الشخصي.</p>
+      <div class="acts">
+        <button id="copyAddress" class="pill pr">⧉ نسخ البريد</button>
+        <button id="random" class="pill">↻ تغيير عشوائي</button>
+        <button id="custom" class="pill">✎ تخصيص الاسم</button>
+        <button id="refresh" class="pill">⟳ تحديث الوارد</button>
+      </div>
+    </section>
+    <div class="sh"><span>صندوق الوارد</span><b id="counter">0</b></div>
+    <div id="list" class="grp"></div>
+    <p class="ft">يُفحص الوارد كل ٦ ثوانٍ أثناء فتح التطبيق. قد يتوقف الفحص في الخلفية عند إغلاق التطبيق أو تقييد النظام له. هذا البريد مؤقت وغير خاص.</p>
+  </main>
   <div id="scrim"></div>
-  <section id="sheet" aria-label="تفاصيل الرسالة"><div class="gr"><i></i></div><div id="sc"></div></section>
-
-  <div id="toast"><span id="tt"></span></div>
+  <section id="sheet" class="glass" aria-label="تفاصيل الرسالة"><div class="gr"><i></i></div><div id="sc"></div></section>
+  <div id="toast" role="status"><span id="tt"></span></div>
 </div>
 <script type="module" src="./src/main.js"></script>
 </body>

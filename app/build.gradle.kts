@@ -14,8 +14,8 @@ android {
         applicationId = "com.baridat.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 27
-        versionName = "2.4.1"
+        versionCode = 28
+        versionName = "2.5.0"
     }
 
     signingConfigs {

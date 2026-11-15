@@ -1,8 +1,8 @@
 {
-  "version": "2.4.1",
-  "versionCode": 27,
-  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.4.1/baridat.apk",
-  "releaseNotes": "تحسين تحديث الوارد ومعالجة أخطاء الاتصال وتجديد رمز الدخول.",
-  "updatedAt": "2026-11-15T00:00:00Z",
+  "version": "2.5.0",
+  "versionCode": 28,
+  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.5.0/baridat.apk",
+  "releaseNotes": "الانتقال إلى Guerrilla Mail مع اختيار النطاق، وتخصيص العنوان واستخراج رموز التحقق.",
+  "updatedAt": "2026-11-15T15:54:09Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

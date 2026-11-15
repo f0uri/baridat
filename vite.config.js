@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite';
 
+// Use relative base so the build works when loaded from file:///android_asset/
+// inside the WebView (asset paths resolve relative to index.html).
 export default defineConfig({
+  base: './',
   server: {
     host: '0.0.0.0',
     port: 5173,
@@ -13,14 +16,5 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-  },
-  // Ensure APK is served with correct MIME type
-  configureServer(server) {
-    server.middlewares.use((req, res, next) => {
-      if (req.url && req.url.endsWith('.apk')) {
-        res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-      }
-      next();
-    });
   },
 });

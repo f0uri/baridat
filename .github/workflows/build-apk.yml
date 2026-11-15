@@ -49,6 +49,22 @@ jobs:
           "$BUILD_TOOLS/aapt" dump badging "$APK" | head -20
           mkdir -p release-assets
           cp "$APK" release-assets/baridat.apk
+      - name: Verify version and signing continuity for v2.8.2
+        if: github.ref == 'refs/tags/v2.8.2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          APK=release-assets/baridat.apk
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          badging=$("$BUILD_TOOLS/aapt" dump badging "$APK")
+          echo "$badging" | grep -F "package: name='com.baridat.app' versionCode='35' versionName='2.8.2'"
+          mkdir -p /tmp/previous-release
+          gh release download v2.8.1 --pattern baridat.apk --dir /tmp/previous-release
+          old_cert=$("$BUILD_TOOLS/apksigner" verify --print-certs /tmp/previous-release/baridat.apk | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          new_cert=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1)
+          test -n "$old_cert" && test "$old_cert" = "$new_cert"
+          echo "APK package, version and signing certificate verified against v2.8.1."
       - uses: actions/upload-artifact@v4
         with:
           name: baridat-apk

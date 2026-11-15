@@ -8,7 +8,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'mail.dart';
 
 const native = MethodChannel('com.baridat.app/native');
-const sessionKey = 'baridat_guerrilla_v1';
+const sessionKey = 'baridat_mailtm_v1';
 void main() => runApp(const Baridat());
 class Baridat extends StatelessWidget {
   const Baridat({super.key});
@@ -21,9 +21,9 @@ class _InboxState extends State<Inbox> with WidgetsBindingObserver {
   Future<void> init() async {
     try {
       final raw = await native.invokeMethod<String>('load', {'key':sessionKey});
-      if (raw != null) { final value = jsonDecode(raw); if (value is Map<String,dynamic> && value['email_addr'] is String && value['sid_token'] is String && value['email_addr'].toString().contains('@')) api.session = value; }
+      if (raw != null) { final value = jsonDecode(raw); if (MailService.validSession(value)) api.session = value as Map<String,dynamic>; }
       sound = (await native.invokeMethod<String>('load', {'key':'click_sound'})) != '0';
-      if (api.session == null) await api.create();
+      if (api.session == null) { await api.create(); } else { await api.loadDomains(); }
       await refresh();
     } catch (e) { if (mounted) setState(() { connected = false; status = error(e); }); }
     timer = Timer.periodic(const Duration(seconds: 6), (_) { if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) refresh(); });
@@ -36,26 +36,26 @@ class _InboxState extends State<Inbox> with WidgetsBindingObserver {
   Future<void> refresh() async {
     if (api.session == null || busy || checking) return;
     checking = true; final target = api.session;
-    try { final data = await api.inbox(); if (mounted && identical(target, api.session) && !busy) setState(() { messages = data; connected = true; status = 'تم فحص الوارد · كل ٦ ثوانٍ'; }); }
+    try { final data = await api.inbox(); if (mounted && (identical(target, api.session) || api.mailboxReplaced) && !busy) { setState(() { messages = data; connected = true; status = 'تم فحص الوارد · كل ٦ ثوانٍ'; }); if (api.mailboxReplaced) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم إنشاء عنوان جديد'))); } }
     catch (e) { if (mounted && identical(target, api.session)) setState(() { connected = false; status = error(e); }); }
     finally { checking = false; }
   }
   Future<void> action(Future<void> Function() f, {bool clear = false}) async {
     if (busy) return; setState(() => busy = true);
-    try { await f(); if (clear) messages = []; } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error(e)))); }
+    try { await f(); if (clear) messages = []; if (api.cleanupFailed && mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تعذر حذف العنوان السابق من الخدمة'))); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error(e)))); }
     finally { if (mounted) setState(() => busy = false); }
     await refresh();
   }
-  Future<void> custom() async { final controller = TextEditingController(text: api.session?['email_addr'].toString().split('@').first); final name = await showDialog<String>(context: context, builder: (c) => AlertDialog(title: const Text('تخصيص عنوان البريد'), content: TextField(controller: controller, textDirection: TextDirection.ltr, maxLength: 30), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('إلغاء')), TextButton(onPressed: () => Navigator.pop(c, controller.text.trim()), child: const Text('حفظ'))])); if (name != null) await action(() => api.rename(name), clear: true); }
+  Future<void> custom() async { final controller = TextEditingController(text: api.session?['address'].toString().split('@').first); final name = await showDialog<String>(context: context, builder: (c) => AlertDialog(title: const Text('تخصيص عنوان البريد'), content: TextField(controller: controller, textDirection: TextDirection.ltr, maxLength: 30), actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('إلغاء')), TextButton(onPressed: () => Navigator.pop(c, controller.text.trim()), child: const Text('حفظ'))])); if (name != null) await action(() => api.rename(name), clear: true); }
   Future<void> open(Map<String,dynamic> item) async {
     final target = api.session;
     try { final full = await api.detail(item['mail_id'].toString()); if (!mounted || !identical(target, api.session)) return;
       String text(dynamic x) => x is String && x.trim().isNotEmpty ? x : '';
-      final raw = [text(full['mail_body']), text(full['mail_text']), text(full['mail_excerpt']), text(item['mail_excerpt'])].firstWhere((x) => x.isNotEmpty, orElse: () => 'المحتوى غير متاح حالياً.');
-      final plain = raw.replaceAll(RegExp(r'<(script|style|head)\b[^>]*>[\s\S]*?</\1\s*>', caseSensitive: false), ' ').replaceAll(RegExp(r'<br\s*/?>|</(?:p|div|li|tr)>', caseSensitive: false), '\n').replaceAll(RegExp(r'<[^>]*>'), ' ').replaceAll('&nbsp;', ' ').replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"');
+      final raw = [text(full['mail_body']), text(full['mail_text']), text(full['mail_excerpt']), text(item['mail_excerpt'])].join('\n');
+      final plain = messageBody([full['mail_text'], full['mail_body'], full['mail_excerpt'], item['mail_excerpt']]);
       final code = RegExp(r'(?:code|otp|pin|verification|رمز|التحقق|كود)[^0-9]{0,25}([0-9]{4,8})', caseSensitive: false).firstMatch('${full['mail_subject'] ?? ''} $plain')?.group(1) ?? RegExp(r'\b[0-9]{4,8}\b').firstMatch(plain)?.group(0);
-      final urls = RegExp(r'''https?://[^\s<>"']+''', caseSensitive: false).allMatches(raw.replaceAll('&amp;', '&')).map((m) => m.group(0)!).where((u) => Uri.tryParse(u)?.host.isNotEmpty == true).toSet().take(10).toList();
-      if (!mounted) return; showModalBottomSheet(context: context, isScrollControlled: true, builder: (c) => SafeArea(child: SingleChildScrollView(child: Padding(padding: const EdgeInsets.all(24), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [Text('${full['mail_subject'] ?? item['mail_subject'] ?? '(بدون موضوع)'}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)), const SizedBox(height: 8), Text('${full['mail_from'] ?? item['mail_from'] ?? ''}'), if (code != null) ...[const SizedBox(height: 16), FilledButton(onPressed: () { Clipboard.setData(ClipboardData(text: code)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نسخ الرمز'))); }, child: Text('نسخ رمز التحقق  $code'))], const SizedBox(height: 20), SelectableText(plain), if (urls.isNotEmpty) const Padding(padding: EdgeInsets.only(top: 20), child: Text('تحقق من الرابط قبل فتحه:')), ...urls.map((url) => TextButton(onPressed: () => native.invokeMethod('openUrl', {'url':url}), child: Text(url, textDirection: TextDirection.ltr)))])))));
+      final urls = RegExp(r'''https?://[^\s<>"']+''', caseSensitive: false).allMatches((text(full['mail_body']) + ' ' + raw).replaceAll('&amp;', '&')).map((m) => m.group(0)!).where((u) { final uri = Uri.tryParse(u); return uri != null && (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty && uri.userInfo.isEmpty; }).toSet().take(10).toList();
+      if (!mounted) return; showModalBottomSheet(context: context, isScrollControlled: true, builder: (c) => SafeArea(child: SingleChildScrollView(child: Padding(padding: const EdgeInsets.all(24), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [Text('${full['mail_subject'] ?? item['mail_subject'] ?? '(بدون موضوع)'}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)), const SizedBox(height: 8), Text('${full['mail_from'] ?? item['mail_from'] ?? ''}'), Text('${full['mail_date'] ?? item['mail_date'] ?? ''}'), if (code != null) ...[const SizedBox(height: 16), FilledButton(onPressed: () { Clipboard.setData(ClipboardData(text: code)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نسخ الرمز'))); }, child: Text('نسخ رمز التحقق  $code'))], const SizedBox(height: 20), SelectableText(plain), if (urls.isNotEmpty) const Padding(padding: EdgeInsets.only(top: 20), child: Text('تحقق من الرابط قبل فتحه:')), ...urls.map((url) => TextButton(onPressed: () => native.invokeMethod('openUrl', {'url':url}), child: Text(url, textDirection: TextDirection.ltr)))])))));
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error(e)))); }
   }
   Future<void> checkUpdate() async {
@@ -129,12 +129,12 @@ class _InboxState extends State<Inbox> with WidgetsBindingObserver {
   ]);
   Widget domainCard() {
     final domain = api.session == null ? null : api.address.split('@').last;
-    return glass(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('اختر نطاق البريد', style: TextStyle(color: ink, fontWeight: FontWeight.w600)), const SizedBox(height: 8), DropdownButton<String>(isExpanded: true, value: domains.contains(domain) ? domain : null, hint: Text(domain ?? 'اختر النطاق'), items: domains.map((d) => DropdownMenuItem(value: d, child: Text('@$d', textDirection: TextDirection.ltr))).toList(), onChanged: busy || api.session == null ? null : (d) { if (d != null) { feedback(); action(() => api.domain(d)); } })]));
+    return glass(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('اختر نطاق البريد', style: TextStyle(color: ink, fontWeight: FontWeight.w600)), const SizedBox(height: 8), DropdownButton<String>(isExpanded: true, value: api.domains.contains(domain) ? domain : null, hint: Text(domain ?? 'اختر النطاق'), items: api.domains.map((d) => DropdownMenuItem(value: d, child: Text('@$d', textDirection: TextDirection.ltr))).toList(), onChanged: busy || api.session == null ? null : (d) { if (d != null) { feedback(); action(() => api.domain(d), clear: true); } })]));
   }
   Widget settingsPage() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
     heading('الإعدادات'), sectionTitle('البريد'), domainCard(), sectionTitle('التفضيلات'),
     glass(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4), child: Row(children: [gradientIcon(Icons.volume_up_outlined), const SizedBox(width: 12), Expanded(child: Text('صوت النقرات', style: TextStyle(color: ink, fontWeight: FontWeight.w600))), Switch(value: sound, activeColor: const Color(0xffc026d3), onChanged: (v) { setState(() => sound = v); native.invokeMethod('save', {'key':'click_sound','value':v ? '1':'0'}); })])),
-    sectionTitle('التحديث'), glass(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Row(children: [gradientIcon(Icons.system_update_alt_rounded), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('تحديث التطبيق', style: TextStyle(color: ink, fontWeight: FontWeight.bold)), Text('بريدات 2.8.1', style: TextStyle(color: muted, fontSize: 12))]))]), if (updateText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(updateText, style: TextStyle(color: muted))), const SizedBox(height: 8), Wrap(spacing: 8, children: [TextButton(onPressed: checkUpdate, child: const Text('التحقق من التحديث')), if (updateUrl != null) TextButton(onPressed: () => native.invokeMethod('downloadUpdate', {'url':updateUrl}), child: const Text('تنزيل وتثبيت')), TextButton(onPressed: () => native.invokeMethod('installUpdate'), child: const Text('تثبيت التحديث المحمّل'))])])),
+    sectionTitle('التحديث'), glass(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Row(children: [gradientIcon(Icons.system_update_alt_rounded), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('تحديث التطبيق', style: TextStyle(color: ink, fontWeight: FontWeight.bold)), Text('بريدات 2.8.2', style: TextStyle(color: muted, fontSize: 12))]))]), if (updateText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(updateText, style: TextStyle(color: muted))), const SizedBox(height: 8), Wrap(spacing: 8, children: [TextButton(onPressed: checkUpdate, child: const Text('التحقق من التحديث')), if (updateUrl != null) TextButton(onPressed: () => native.invokeMethod('downloadUpdate', {'url':updateUrl}), child: const Text('تنزيل وتثبيت')), TextButton(onPressed: () => native.invokeMethod('installUpdate'), child: const Text('تثبيت التحديث المحمّل'))])])),
     Padding(padding: const EdgeInsets.all(12), child: Text('تعتمد مدة الاحتفاظ بالرسائل على خدمة البريد.', style: TextStyle(color: muted, fontSize: 12))),
   ]);
   Widget navigation() => Padding(padding: const EdgeInsets.fromLTRB(22, 0, 22, 12), child: glass(padding: const EdgeInsets.all(6), radius: 30, child: Row(children: List.generate(3, (i) {

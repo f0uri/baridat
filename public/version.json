@@ -1,8 +1,8 @@
 {
-  "version": "2.8.1",
-  "versionCode": 34,
-  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.8.1/baridat.apk",
-  "releaseNotes": "واجهة Flutter زجاجية جديدة مستوحاة من التصميم المرفق.",
-  "updatedAt": "2026-11-15T19:57:12Z",
+  "version": "2.8.2",
+  "versionCode": 35,
+  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.8.2/baridat.apk",
+  "releaseNotes": "الانتقال إلى mail.tm وتحسين عرض محتوى الرسائل.",
+  "updatedAt": "2026-11-15T21:14:28Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

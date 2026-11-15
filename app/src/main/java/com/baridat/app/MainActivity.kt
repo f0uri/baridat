@@ -1,10 +1,10 @@
 package com.baridat.app
 
 import android.annotation.SuppressLint
-import android.content.Context
-import android.content.SharedPreferences
+import android.os.Build
 import android.os.Bundle
-import android.webkit.JavascriptInterface
+import android.view.View
+import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -16,39 +16,12 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
-    private lateinit var prefs: SharedPreferences
 
-    inner class NativeBridge {
-        @JavascriptInterface
-        fun getAppVersion(): String = BuildConfig.VERSION_NAME
-
-        @JavascriptInterface
-        fun getVersionCode(): Int = BuildConfig.VERSION_CODE
-
-        @JavascriptInterface
-        @Synchronized
-        fun storeString(key: String, value: String) {
-            prefs.edit().putString(key, value).apply()
-        }
-
-        @JavascriptInterface
-        @Synchronized
-        fun loadString(key: String, def: String): String {
-            return prefs.getString(key, def) ?: def
-        }
-
-        @JavascriptInterface
-        @Synchronized
-        fun removeKey(key: String) {
-            prefs.edit().remove(key).apply()
-        }
-    }
-
-    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        prefs = getSharedPreferences("baridat_native", Context.MODE_PRIVATE)
 
+        // Edge-to-edge (works on all API levels via AndroidX)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.isAppearanceLightStatusBars = false
@@ -72,8 +45,6 @@ class MainActivity : AppCompatActivity() {
         s.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
-
-        web.addJavascriptInterface(NativeBridge(), "BaridatNative")
 
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")

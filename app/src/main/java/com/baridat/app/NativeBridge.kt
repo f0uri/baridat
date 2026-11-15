@@ -52,7 +52,7 @@ class NativeBridge(private val activity: Activity) {
         executor.execute {
             var c: HttpURLConnection? = null
             try {
-                Log.i(TAG, "$m $u")
+                Log.i(TAG, "$m request")
                 c = (URL(u).openConnection() as HttpURLConnection).apply {
                     requestMethod = m
                     connectTimeout = 15000
@@ -70,10 +70,10 @@ class NativeBridge(private val activity: Activity) {
                 val code = c.responseCode
                 val s = if (code in 200..299) c.inputStream else c.errorStream
                 val txt = s?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() } ?: ""
-                Log.i(TAG, "$m $u -> $code (${txt.length}b)")
+                Log.i(TAG, "$m request -> $code (${txt.length}b)")
                 fire(cb, JSONObject().put("ok", code in 200..299).put("status", code).put("body", txt).toString())
             } catch (t: Throwable) {
-                Log.e(TAG, "$m $u failed", t)
+                Log.e(TAG, "$m request failed: ${t.javaClass.simpleName}")
                 fire(cb, err(t.javaClass.simpleName + ": " + (t.message ?: "error")))
             } finally { c?.disconnect() }
         }

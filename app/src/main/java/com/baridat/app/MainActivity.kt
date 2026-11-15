@@ -15,13 +15,13 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
+class NativeBridge {
+    @JavascriptInterface
+    fun getAppVersion(): String = "2.1.0"
+}
+
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
-
-    inner class NativeBridge {
-        @JavascriptInterface
-        fun getAppVersion(): String = BuildConfig.VERSION_NAME
-    }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {

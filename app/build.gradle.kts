@@ -4,20 +4,18 @@ plugins {
 
 android {
     namespace = "com.baridat.app"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.baridat.app"
-        minSdk = 24
-        targetSdk = 34
+        minSdk = 26
+        targetSdk = 36
         versionCode = 20
         versionName = "2.0.0"
     }
 
     signingConfigs {
         create("release") {
-            // CI places the signing keystore at signing/baridat.jks via a GitHub Secret.
-            // Locally fall back to the debug keystore.
             val keystoreFile = rootProject.file("signing/baridat.jks")
             val debugFile = rootProject.file("debug.keystore")
             val chosen = when {
@@ -68,10 +66,6 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    buildFeatures {
-        viewBinding = false
     }
 }
 

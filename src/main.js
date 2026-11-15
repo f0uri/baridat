@@ -1,4 +1,5 @@
 import './style.css';
+import { collection, apiError, mailtmRequest, mailtmMessages } from './mail-api.js';
 
 /* =========================================================
    Native bridge + HTTP (all mail traffic goes through Kotlin)
@@ -11,18 +12,20 @@ function nset(k, v){ try{ if(N) N.storeString(k,v); }catch(e){ nlog('e','store '
 function http(method, url, body, token){
   return new Promise(resolve => {
     if(!N || !N.http){
-      fetch(url,{method,headers:Object.assign({'Accept':'application/json'},body?{'Content-Type':'application/json'}:{},token?{'Authorization':'Bearer '+token}:{}),body:body||undefined})
+      fetch(url,{method,cache:'no-store',headers:Object.assign({'Accept':'application/json'},body?{'Content-Type':'application/json'}:{},token?{'Authorization':'Bearer '+token}:{}),body:body||undefined})
         .then(r=>r.text().then(t=>resolve({ok:r.ok,status:r.status,body:t})))
         .catch(e=>resolve({ok:false,status:0,error:String(e)}));
       return;
     }
     const cb='_ncb_'+Math.random().toString(36).slice(2);
+    const timer=setTimeout(()=>{delete window[cb];resolve({ok:false,status:0,error:'timeout'});},45000);
     window[cb]=function(res){
+      clearTimeout(timer);
       try{delete window[cb]}catch{}
       try{resolve(JSON.parse(res))}catch{resolve({ok:false,status:0,error:'bad-json'})}
     };
     try{ N.http(method,url,body||null,token||null,cb); }
-    catch(e){ resolve({ok:false,status:0,error:'http-exc: '+e}); }
+    catch(e){ clearTimeout(timer); delete window[cb]; resolve({ok:false,status:0,error:'http-exc: '+e}); }
   });
 }
 function openUrl(u){
@@ -82,7 +85,6 @@ function current(){ return addrs[curIdx]||null; }
 /* =========================================================
    Providers
    ========================================================= */
-const DOMAINS = ['tempnest.app','inboxly.cc','vanish.mail'];
 const PROVIDERS = {
   mailtm:{
     label:'mail.tm',
@@ -90,21 +92,21 @@ const PROVIDERS = {
       const r=await http('GET','https://api.mail.tm/domains?page=1');
       if(!r.ok) throw new Error('domains '+r.status);
       const d=JSON.parse(r.body);
-      const list=(d['hydra:member']||[]).filter(x=>x.isActive);
+      const list=collection(d).filter(x=>x.isActive && !x.isPrivate);
       if(!list.length) throw new Error('لا يوجد دومين');
       const dom=list[0].domain, addr=rnd(12)+'@'+dom, pw=rnd(24);
       const cr=await http('POST','https://api.mail.tm/accounts',JSON.stringify({address:addr,password:pw}));
       if(!cr.ok) throw new Error('create '+cr.status);
       const tr=await http('POST','https://api.mail.tm/token',JSON.stringify({address:addr,password:pw}));
-      if(!tr.ok) throw new Error('token '+tr.status);
-      return {id:JSON.parse(cr.body).id,address:addr,password:pw,token:JSON.parse(tr.body).token,provider:'mailtm',createdAt:Date.now(),msgs:[]};
+      if(!tr.ok) throw apiError('تسجيل الدخول',tr);
+      const id=JSON.parse(cr.body).id, token=JSON.parse(tr.body).token;
+      if(!id || !token) throw new Error('استجابة غير متوقعة عند إنشاء الحساب');
+      return {id,address:addr,password:pw,token,provider:'mailtm',createdAt:Date.now(),msgs:[]};
     },
-    async list(a){ const r=await http('GET','https://api.mail.tm/messages?page=1',null,a.token);
-      if(!r.ok) throw new Error('list '+r.status); const d=JSON.parse(r.body);
-      return (d['hydra:member']||[]).map(nMailtm); },
-    async read(a,id){ const r=await http('GET','https://api.mail.tm/messages/'+id,null,a.token);
-      if(!r.ok) throw new Error('read '+r.status); return nMailtm(JSON.parse(r.body),true); },
-    async remove(a,id){ await http('DELETE','https://api.mail.tm/messages/'+id,null,a.token); },
+    async list(a){ return (await mailtmMessages(http,a)).map(nMailtm); },
+    async read(a,id){ const r=await mailtmRequest(http,a,'GET','/messages/'+encodeURIComponent(id));
+      return nMailtm(JSON.parse(r.body),true); },
+    async remove(a,id){ await mailtmRequest(http,a,'DELETE','/messages/'+encodeURIComponent(id)); },
   },
   mail123:{
     label:'mail123',
@@ -118,10 +120,11 @@ const PROVIDERS = {
     async list(a){ const r=await http('GET','https://mail123.fr/api/v1/mailbox/'+encodeURIComponent(a.address)+'/messages');
       if(!r.ok){ if(r.status===429) throw new Error('rate-limit'); throw new Error('list '+r.status); }
       const d=JSON.parse(r.body); if(!d.success) throw new Error(d.error||'list fail');
-      return (d.messages||[]).map(nMail123); },
+      if(!Array.isArray(d.messages)) throw new Error('استجابة غير متوقعة من خدمة البريد');
+      return d.messages.map(nMail123); },
     async read(a,id){ const r=await http('GET','https://mail123.fr/api/v1/mailbox/'+encodeURIComponent(a.address)+'/messages/'+encodeURIComponent(id));
       if(!r.ok) throw new Error('read '+r.status); const d=JSON.parse(r.body); return nMail123(d.message||d,true); },
-    async remove(a,id){ await http('DELETE','https://mail123.fr/api/v1/mailbox/'+encodeURIComponent(a.address)+'/messages/'+encodeURIComponent(id)); },
+    async remove(a,id){ const r=await http('DELETE','https://mail123.fr/api/v1/mailbox/'+encodeURIComponent(a.address)+'/messages/'+encodeURIComponent(id)); if(!r.ok) throw apiError('حذف الرسالة',r); },
   }
 };
 function nMailtm(m,full){const f=(m.from&&(Array.isArray(m.from)?m.from[0]:m.from))||{};return{id:m.id,fromName:f.name||'',fromAddr:f.address||'',subject:m.subject||'(بدون موضوع)',intro:m.intro||(m.text?m.text.slice(0,100):''),text:full?(m.text||''):'',html:full?(m.html||''):'',seen:!!m.seen,createdAt:m.createdAt};}
@@ -132,13 +135,15 @@ async function tryCreate(){
   for(const p of order){ try{const a=await PROVIDERS[p].create();settings.lastOk=p;saveSettings();activeProvider=p;return a;}catch(e){le=e;nlog('warn',p+' fail: '+e.message);} }
   throw le||new Error('كل المزودين فشلوا');
 }
-function rnd(n){const a='abcdefghijklmnopqrstuvwxyz0123456789';let s='';for(let i=0;i<n;i++)s+=a[Math.floor(Math.random()*a.length)];return s;}
+function rnd(n){const chars='abcdefghijklmnopqrstuvwxyz0123456789';let s='';const bytes=new Uint8Array(n*2);while(s.length<n){crypto.getRandomValues(bytes);for(const b of bytes){if(b<252)s+=chars[b%chars.length];if(s.length===n)break;}}return s;}
 const $=s=>document.querySelector(s);
 
 /* =========================================================
    Helpers
    ========================================================= */
-let tab=0, pollTimer=null;
+let tab=0, pollTimer=null, creating=false;
+const polling=new Set();
+let inboxError='';
 function ago(t){const s=(Date.now()-t)/1e3;if(s<45)return'الآن';if(s<3600)return'قبل '+Math.round(s/60)+' د';if(s<86400)return'قبل '+Math.round(s/3600)+' س';return new Date(t).toLocaleDateString('ar-EG');}
 function hue(s){return((s&&s.charCodeAt(0))||77)*37%360;}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -186,18 +191,18 @@ function vInbox(){
     <section class="hero">
       <div class="hl"><span class="live"></span>${PROVIDERS[c.provider]?.label||'مخصص'}</div>
       <div class="addr">${esc(c.address)}</div>
-      <div class="meta"><span style="display:inline-flex;align-items:center;gap:6px">${ICO.at.replace('class="lucide"','')}${DOMAINS[settings.dom]||c.address.split('@')[1]}</span></div>
+      <div class="meta"><span style="display:inline-flex;align-items:center;gap:6px">${ICO.at.replace('class="lucide"','')}${esc(c.address.split('@')[1]||'')}</span></div>
       <div class="acts">
         <button class="pill pr" data-act="copy">${ICO.copy} نسخ</button>
         <button class="pill" data-act="new">${ICO.shuffle} عنوان جديد</button>
-        <button class="pill" data-act="ext">${ICO.ext} تمديد</button>
       </div>
     </section>
-    <div class="sh"><span>الرسائل</span><b>${c.msgs.length}</b></div>
+    <div class="sh"><span>الرسائل</span><b id="messageCount">${c.msgs.length}</b></div>
+    <div id="inboxStatus" role="status">${inboxError?esc(inboxError):''}</div>
     <div class="grp" id="list">${c.msgs.length?rows(c.msgs):empty()}</div>`;
 }
-function empty(){return`<div class="em"><div class="rd"><i></i><i></i><span class="rc">${ICO.mail}</span></div><b>في انتظار الرسائل</b><p>أي رسالة تصل لهذا العنوان ستظهر هنا فوراً.</p></div>`;}
-function rows(list){return list.map(m=>`<button class="row glass" data-id="${m.id}">
+function empty(){return`<div class="em"><div class="rd"><i></i><i></i><span class="rc">${ICO.mail}</span></div><b>في انتظار الرسائل</b><p>تُفحص الرسائل كل 15 ثانية أثناء فتح التطبيق.</p></div>`;}
+function rows(list){return list.map(m=>`<button class="row glass" data-id="${esc(m.id)}">
   <span class="av" style="--h:${hue(m.fromName||m.fromAddr)}">${esc((m.fromName||m.fromAddr||'?').charAt(0).toUpperCase())}</span>
   <span class="rb"><span class="r1"><b>${esc(m.fromName||m.fromAddr||'مجهول')}</b><time>${ago(m.createdAt)}</time></span>
   <span class="r2">${esc(m.subject)}</span><span class="r3">${esc(m.intro||'')}</span></span>
@@ -208,10 +213,6 @@ function vAddrs(){return`<div class="lt"><h1>العناوين</h1>${ib('new',ICO
     <span class="rb"><span class="r2 ltr">${esc(a.address)}</span><span class="r3">الرسائل: ${a.msgs.length} · ${PROVIDERS[a.provider]?.label||'—'}</span></span>
     ${i===curIdx?'<span class="tag">نشط</span>':''}</button>`).join('')}</div>`;}
 function vSettings(){return`<div class="lt"><h1>الإعدادات</h1></div>
-  <div class="sh"><span>النطاق</span></div>
-  <div class="seg glass">${DOMAINS.map((d,i)=>`<button class="${i===settings.dom?'on':''}" data-k="dom" data-v="${i}">${d}</button>`).join('')}</div>
-  <div class="sh"><span>مدة الصلاحية</span></div>
-  <div class="seg glass">${[[600,'10 د'],[1800,'30 د'],[3600,'ساعة']].map(([v,l])=>`<button class="${v===settings.life?'on':''}" data-k="life" data-v="${v}">${l}</button>`).join('')}</div>
   <div class="sh"><span>التنبيهات</span></div>
   <div class="grp">
     ${sw('notif',ICO.bell,'إشعارات الرسائل')}
@@ -237,34 +238,39 @@ function render(anim=true){
   bindView();
 }
 function badge(){const c=current();if(!c)return;const n=c.msgs.filter(m=>!m.seen).length;const b=$('#bd');b.textContent=n;b.style.display=n?'grid':'none';}
-function refreshList(){const l=$('#list');if(!l)return;const c=current();l.innerHTML=c.msgs.length?rows(c.msgs):empty();badge();bindView();}
+function refreshList(){const l=$('#list');if(!l)return;const c=current();l.innerHTML=c.msgs.length?rows(c.msgs):empty();const count=$('#messageCount');if(count)count.textContent=c.msgs.length;badge();bindView();}
 
 /* =========================================================
    Mail actions
    ========================================================= */
 async function newAddress(silent){
+  if(creating)return; creating=true;
   try{ if(!silent) toast('جاري إنشاء عنوان…');
-    const a=await tryCreate(); a.msgs=[]; addrs.unshift(a); curIdx=0; saveAll(); render(); startPolling();
+    const a=await tryCreate(); inboxError=''; a.msgs=[]; addrs.unshift(a); curIdx=0; saveAll(); render(); startPolling();
     if(!silent) toast('تم إنشاء عنوان جديد'); setTimeout(poll,4000);
-  }catch(e){nlog('error','newAddress: '+e.message);toast('تعذر إنشاء بريد');}
+  }catch(e){nlog('error','newAddress: '+e.message);inboxError='تعذر إنشاء بريد. تحقق من الاتصال وحاول مجدداً.';toast(inboxError); if(!current()) $('#view').innerHTML=`<div class="em"><b>${esc(inboxError)}</b><button class="pill pr" data-act="new">إعادة المحاولة</button></div>`; bindView();} finally {creating=false;}
 }
-async function switchTo(i){curIdx=i;saveAll();render();poll();startPolling();toast('تم التبديل');}
+async function switchTo(i){curIdx=i;inboxError='';saveAll();render();poll();startPolling();toast('تم التبديل');}
 async function poll(){
-  const c=current();if(!c)return;const p=PROVIDERS[c.provider];if(!p)return;
+  const c=current();if(!c || polling.has(c))return;const p=PROVIDERS[c.provider];if(!p){inboxError='مزود البريد غير معروف';render(false);return;}
+  polling.add(c);
   try{
     const list=await p.list(c);
+    if(!addrs.includes(c)) return;
+    if(current()===c) inboxError='';
     const known=new Set(c.msgs.map(m=>m.id));
     const added=list.filter(m=>!known.has(m.id));
     c.msgs=list.map(nm=>{const o=c.msgs.find(x=>x.id===nm.id);return o?Object.assign({},nm,{seen:o.seen}):nm;});
     c.msgs.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-    saveAll(); refreshList();
+    saveAll(); if(current()===c){refreshList(); const status=$('#inboxStatus');if(status) status.textContent='';}
     for(const m of added){
+      if(current()!==c) break;
       if(settings.notif) toast('رسالة جديدة من '+(m.fromName||m.fromAddr));
       if(settings.autoCopy){
         try{const f=await p.read(c,m.id);const code=otp((m.subject||'')+' '+(f.text||'')+' '+(f.html||''));if(code){copy(code);toast('تم نسخ الرمز: '+code);}}catch{}
       }
     }
-  }catch(e){nlog('warn','poll: '+e.message);}
+  }catch(e){nlog('warn','poll: '+e.message);if(current()===c){inboxError=e.message||'تعذر تحديث البريد';const status=$('#inboxStatus');if(status) status.textContent=inboxError;}} finally {polling.delete(c);}
 }
 function startPolling(){if(pollTimer)clearInterval(pollTimer);pollTimer=setInterval(poll,15000);}
 async function openMsg(id){
@@ -278,7 +284,7 @@ async function openMsg(id){
       <button class="ib" data-act="close">${ICO.x}</button></div>
       <h2>${esc(f.subject)}</h2><time>${ago(f.createdAt)}</time>${body}
       ${code?`<div class="otp"><small>رمز التحقق</small><div class="code">${code.replace(/(\d{3})(\d{3})/,'$1 $2')}</div><button class="pill pr" data-act="cc" data-c="${code}">${ICO.cp} نسخ الرمز</button></div>`:''}
-      <div style="margin-top:18px;display:flex;gap:8px"><button class="pill" style="color:var(--danger);background:rgba(255,92,138,.18)" data-act="del" data-id="${id}">حذف الرسالة</button></div>`);
+      <div style="margin-top:18px;display:flex;gap:8px"><button class="pill" style="color:var(--danger);background:rgba(255,92,138,.18)" data-act="del" data-id="${esc(id)}">حذف الرسالة</button></div>`);
     const d=$('#sc').querySelector('[data-act="del"]');
     if(d) d.onclick=async()=>{try{await p.remove(c,id);c.msgs=c.msgs.filter(x=>x.id!==id);saveAll();closeSheet();refreshList();toast('تم الحذف');}catch{toast('فشل الحذف');}};
   }catch(e){toast('تعذر فتح الرسالة');nlog('error','openMsg: '+e.message);}
@@ -350,6 +356,8 @@ async function boot(){
   startPolling();
   setTimeout(()=>checkUpdate(false),2500);
   setInterval(checkUpdate,6*60*60*1000);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
+  window.addEventListener('online',()=>poll());
   nlog('info','baridat v'+APP_VERSION+' booted');
 }
 boot();

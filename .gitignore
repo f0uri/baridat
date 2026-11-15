@@ -20,3 +20,9 @@ debug.keystore
 signing/baridat.jks
 npm-debug.log*
 baridat.apk
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+android/local.properties

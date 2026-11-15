@@ -58,6 +58,8 @@ class NativeBridge(private val activity: Activity) {
                     connectTimeout = 15000
                     readTimeout = 20000
                     instanceFollowRedirects = true
+                    useCaches = false
+                    setRequestProperty("Cache-Control", "no-cache, no-store")
                     setRequestProperty("Accept", "application/json, text/plain, */*")
                     setRequestProperty("User-Agent", "Baridat/${BuildConfig.VERSION_NAME} (Android)")
                     if (!token.isNullOrEmpty()) setRequestProperty("Authorization", "Bearer $token")

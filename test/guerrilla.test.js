@@ -22,7 +22,7 @@ test('renames in the same session and clears read state', async () => {
 });
 test('filters welcome and rejects malformed lists', async () => {
   let malformed = false;
-  const api = new GuerrillaMail(async () => ok(malformed ? {} : {list:[{mail_id:1,mail_from:'Guerrilla <no-reply@guerrillamail.com>'},{mail_id:2,mail_from:'someone@example.com'}]}));
+  const api = new GuerrillaMail(async () => ok(malformed ? {} : {list:[{mail_id:1,mail_from:'Guerrilla <no-reply@guerrillamail.com>',mail_subject:'Welcome to Guerrilla Mail'},{mail_id:2,mail_from:'someone@example.com'}]}));
   api.restore({email_addr:'a@x.test',sid_token:'s'});
   assert.deepEqual((await api.list()).map(m=>m.mail_id),[2]); malformed = true; await assert.rejects(api.list());
 });
@@ -97,4 +97,25 @@ test('surfaces authentication rejection even when HTTP status is 200', async () 
   const api = new GuerrillaMail(async () => ok({auth:{success:false},list:[]}));
   api.restore({email_addr:'a@grr.la',sid_token:'s'});
   await assert.rejects(api.list(), /رفضت/);
+});
+
+test('does not hide non-welcome messages from the same sender', async () => {
+  const api = new GuerrillaMail(async () => ok({list:[{mail_id:123,mail_from:'no-reply@guerrillamail.com',mail_subject:'Your message'}]}));
+  api.restore({email_addr:'a@x.test',sid_token:'s'});
+  assert.equal((await api.list())[0].mail_id,123);
+});
+test('does not discard existing inbox if creating a new address fails', async () => {
+  const original = {email_addr:'existing@guerrillamailblock.com',sid_token:'old',seen_ids:['1'],known_ids:['1']};
+  let n = 0;
+  const api = new GuerrillaMail(async () => ++n === 1 ? ok({email_addr:'temporary@guerrillamailblock.com',sid_token:'new'}) : {ok:false,status:503});
+  api.restore(original);
+  await assert.rejects(api.create('newuser'), /503/);
+  assert.equal(api.session, original);
+});
+test('retains the initial valid inbox if first-time username setting fails', async () => {
+  let n = 0;
+  const api = new GuerrillaMail(async () => ++n === 1 ? ok({email_addr:'temporary@guerrillamailblock.com',sid_token:'new'}) : {ok:false,status:503});
+  await assert.rejects(api.create('newuser'), /503/);
+  assert.equal(api.session.email_addr,'temporary@guerrillamailblock.com');
+  assert.equal(api.session.sid_token,'new');
 });

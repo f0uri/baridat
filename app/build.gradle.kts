@@ -6,6 +6,10 @@ android {
     namespace = "com.baridat.app"
     compileSdk = 36
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.baridat.app"
         minSdk = 26

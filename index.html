@@ -1,118 +1,60 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#120f1f" />
-  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
-  <title>بريدات — بريد مؤقت</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./src/style.css" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0a0414" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4efff" media="(prefers-color-scheme: light)">
+<title>بريدات</title>
+<link rel="icon" type="image/svg+xml" href="./icon.svg">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="./src/style.css">
 </head>
 <body>
-  <!-- Scrim (backdrop) -->
-  <div id="scrim" class="scrim" hidden></div>
+<div id="app">
+  <div class="bl b1"></div><div class="bl b2"></div><div class="bl b3"></div>
+  <div class="orb o1"></div><div class="orb o2"></div>
 
-  <!-- Drawer -->
-  <aside id="drawer" class="drawer" aria-hidden="true">
-    <div class="drawer-head">
-      <svg class="drawer-logo" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-      <div>
-        <div class="drawer-title">بريدات</div>
-        <div class="drawer-sub">صندوق مؤقت</div>
-      </div>
-    </div>
-    <div class="drawer-section-title">عناويني</div>
-    <div id="addressList" class="address-list"></div>
-    <button id="newAddressBtn" class="btn btn-primary btn-block">+ عنوان جديد</button>
-    <div class="drawer-spacer"></div>
-    <div class="drawer-foot">
-      <button id="settingsBtn" class="btn btn-ghost btn-block">الإعدادات</button>
-      <div class="version" id="versionBadge">…</div>
-    </div>
-  </aside>
+  <header class="nb" id="nb"><span id="nt">الوارد</span></header>
 
-  <!-- Main -->
-  <main class="main">
-    <header class="topbar">
-      <button id="menuBtn" class="icon-btn" aria-label="القائمة">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
-      </button>
-      <div class="topbar-title">بريدات</div>
-      <div class="spacer"></div>
-      <button id="refreshBtn" class="icon-btn" aria-label="تحديث">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-      </button>
-    </header>
+  <main id="view"></main>
 
-    <section class="card address-card">
-      <div class="label">عنوانك الحالي</div>
-      <div class="address-row">
-        <div id="currentAddress" class="address">جاري الإنشاء…</div>
-        <button id="copyBtn" class="btn btn-ghost btn-sm">نسخ</button>
-      </div>
-      <div id="addressError" class="error-msg" hidden></div>
-      <div class="actions">
-        <button id="refreshAddressBtn" class="btn btn-sm">تحديث الصندوق</button>
-        <button id="deleteAddressBtn" class="btn btn-sm btn-danger">حذف العنوان</button>
-      </div>
-    </section>
+  <nav class="tabs" aria-label="التنقل">
+    <button class="on" data-tab="0">
+      <svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3-2-6-2 3H2"/><path d="M5.44 5.44 2 12l3.44 6.56A2 2 0 0 0 7.24 19.7h9.52a2 2 0 0 0 1.8-1.14L22 12l-3.44-6.56A2 2 0 0 0 16.76 4.3H7.24a2 2 0 0 0-1.8 1.14z"/></svg>
+      الوارد<b class="bd" id="bd"></b>
+    </button>
+    <button data-tab="1">
+      <svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>
+      العناوين
+    </button>
+    <button data-tab="2">
+      <svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      الإعدادات
+    </button>
+  </nav>
 
-    <section class="card messages-card">
-      <div class="card-head">
-        <div class="label">الرسائل</div>
-        <div id="providerLabel" class="provider-chip">…</div>
-      </div>
-      <div id="messages" class="messages"></div>
-      <div id="emptyMsg" class="empty">لا توجد رسائل بعد. انتظر قليلاً أو أرسل رسالة إلى هذا العنوان.</div>
-    </section>
-  </main>
+  <div id="scrim" data-act="close"></div>
 
-  <!-- Message modal -->
-  <div id="msgModal" class="modal" hidden>
-    <div class="modal-card">
-      <div class="modal-head">
-        <button id="closeModal" class="icon-btn">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-        <div id="mSubject" class="modal-title">—</div>
-      </div>
-      <div class="modal-meta">
-        <div><span class="muted">من:</span> <span id="mFrom">—</span></div>
-        <div><span class="muted">التاريخ:</span> <span id="mDate">—</span></div>
-      </div>
-      <div id="mOtpBox" class="otp-box" hidden></div>
-      <div id="mBody" class="modal-body">—</div>
-      <div class="modal-foot">
-        <button id="deleteMsgBtn" class="btn btn-sm btn-danger">حذف الرسالة</button>
-      </div>
-    </div>
+  <section id="sheet" aria-label="تفاصيل">
+    <div class="gr" id="gr"><i class="hd"></i></div>
+    <div id="sc"></div>
+  </section>
+
+  <div id="updateBanner" class="ub" hidden>
+    <span class="ub-ic">
+      <svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </span>
+    <span class="ub-txt">يتوفر إصدار جديد</span>
+    <button id="updateBtn" class="ub-btn">تحديث</button>
+    <button id="updateClose" class="ub-x" aria-label="إغلاق">
+      <svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
   </div>
 
-  <!-- Settings modal -->
-  <div id="settingsModal" class="modal" hidden>
-    <div class="modal-card">
-      <div class="modal-head">
-        <button id="closeSettings" class="icon-btn">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-        <div class="modal-title">الإعدادات</div>
-      </div>
-      <label class="field">
-        <span>خادم مخصص (اختياري)</span>
-        <input id="customServer" type="url" placeholder="https://..." />
-      </label>
-      <div class="muted small">الإصدار <span id="settingsVersion">—</span></div>
-      <div class="modal-foot">
-        <button id="saveSettings" class="btn btn-primary">حفظ</button>
-      </div>
-    </div>
-  </div>
+  <div id="toast"><span id="tt"></span></div>
+</div>
 
-  <div id="toast" class="toast" hidden></div>
-
-  <script type="module" src="./src/main.js"></script>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>

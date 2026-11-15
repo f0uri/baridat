@@ -1,502 +1,541 @@
 import './style.css';
 
-// ============================================================
-// Native bridge
-// ============================================================
+/* =========================================================
+   Native bridge + HTTP (no fetch for mail APIs; uses Kotlin)
+   ========================================================= */
 const N = window.BaridatNative || null;
 
-function nlog(level, msg) { try { N && N.log(level, String(msg)); } catch {} }
-function nget(k, def)   { try { return N ? N.loadString(k, def) : def; } catch { return def; } }
-function nset(k, v)     { try { if (N) N.storeString(k, v); } catch(e){ nlog('e','store '+k+' failed: '+e); } }
-function nrm(k)         { try { if (N) N.removeKey(k); } catch {} }
+function nlog(l, m){ try{ N && N.log(l, String(m)); }catch{} }
+function nget(k, d){ try{ return N?N.loadString(k,d):d; }catch{return d} }
+function nset(k, v){ try{ if(N) N.storeString(k,v); }catch(e){ nlog('e','store '+k+': '+e); } }
+function nrm(k)    { try{ if(N) N.removeKey(k); }catch{} }
 
-// Promisified native HTTP — never uses fetch, never hits file:// CORS issues.
-function http(method, url, body, token) {
-  return new Promise((resolve) => {
-    if (!N || !N.http) {
-      // Fallback: no native bridge (dev in browser). Use fetch.
-      fetch(url, {
-        method,
-        headers: Object.assign(
-          { 'Accept': 'application/json' },
-          body ? { 'Content-Type': 'application/json' } : {},
-          token ? { 'Authorization': 'Bearer ' + token } : {},
-        ),
-        body: body || undefined,
-      }).then(r => r.text().then(t => resolve({ ok: r.ok, status: r.status, body: t })))
-        .catch(e => resolve({ ok: false, status: 0, error: String(e) }));
+function http(method, url, body, token){
+  return new Promise(resolve => {
+    if(!N || !N.http){
+      // dev fallback (http://localhost)
+      fetch(url,{method,headers:Object.assign(
+        {'Accept':'application/json'},
+        body?{'Content-Type':'application/json'}:{},
+        token?{'Authorization':'Bearer '+token}:{}),
+        body:body||undefined
+      }).then(r=>r.text().then(t=>resolve({ok:r.ok,status:r.status,body:t})))
+        .catch(e=>resolve({ok:false,status:0,error:String(e)}));
       return;
     }
-    const cb = '_ncb_' + Math.random().toString(36).slice(2);
-    window[cb] = function(res) {
-      try { delete window[cb]; } catch {}
-      try { resolve(JSON.parse(res)); } catch { resolve({ ok: false, status: 0, error: 'bad-json' }); }
+    const cb='_ncb_'+Math.random().toString(36).slice(2);
+    window[cb]=function(res){
+      try{delete window[cb]}catch{}
+      try{resolve(JSON.parse(res))}catch{resolve({ok:false,status:0,error:'bad-json'})}
     };
-    try {
-      N.http(method, url, body || null, token || null, cb);
-    } catch (e) {
-      resolve({ ok: false, status: 0, error: 'http-exc: ' + e });
-    }
+    try{ N.http(method,url,body||null,token||null,cb); }
+    catch(e){ resolve({ok:false,status:0,error:'http-exc: '+e}); }
   });
 }
 
-// ============================================================
-// Version
-// ============================================================
+/* =========================================================
+   Version
+   ========================================================= */
 let APP_VERSION = '0.0.0';
-(function resolveVersion() {
-  try {
-    if (N && typeof N.getAppVersion === 'function') {
-      const v = N.getAppVersion();
-      if (v && /^\d+\.\d+\.\d+/.test(v)) { APP_VERSION = v; return; }
+(function resolveVersion(){
+  try{
+    if(N && typeof N.getAppVersion==='function'){
+      const v=N.getAppVersion();
+      if(v && /^\d+\.\d+\.\d+/.test(v)){ APP_VERSION=v; return; }
     }
-  } catch {}
-  // Fallback: xhr version.json (works on file://)
-  try {
-    const x = new XMLHttpRequest();
-    x.open('GET', './version.json', false);
+  }catch{}
+  try{
+    const x=new XMLHttpRequest();
+    x.open('GET','./version.json',false);
     x.send(null);
-    if (x.status === 200 || x.status === 0) {
-      const d = JSON.parse(x.responseText);
-      if (d && d.version) APP_VERSION = d.version;
+    if(x.status===200||x.status===0){
+      const d=JSON.parse(x.responseText);
+      if(d && d.version) APP_VERSION=d.version;
     }
-  } catch {}
+  }catch{}
 })();
 
-// ============================================================
-// State
-// ============================================================
-const KEY_ACCOUNTS = 'baridat_accounts_v2';
-const KEY_CURRENT  = 'baridat_current_v2';
-const KEY_CUSTOM   = 'baridat_custom_server_v1';
+/* =========================================================
+   Storage keys
+   ========================================================= */
+const KA='baridat_addrs_v1', KC='baridat_cur_v1', KS='baridat_set_v1';
 
-let accounts = [];
-let current = null;
-let customServer = '';
-let activeProvider = 'mailtm';
-let pollingTimer = null;
-
-function $(id) { return document.getElementById(id); }
-function rnd(n) {
-  const a = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let s = '';
-  for (let i = 0; i < n; i++) s += a[Math.floor(Math.random() * a.length)];
-  return s;
+function saveAll(){
+  const j=JSON.stringify({addrs,curIdx,settings});
+  try{ localStorage.setItem(KA,j); }catch{}
+  nset(KA,j);
+}
+function loadAll(){
+  let raw=nget(KA,'');
+  if(!raw) raw=localStorage.getItem(KA)||'';
+  try{
+    const d=raw?JSON.parse(raw):null;
+    if(d && Array.isArray(d.addrs)){ addrs=d.addrs; curIdx=d.curIdx||0; Object.assign(settings,d.settings||{}); }
+  }catch{}
+  if(curIdx>=addrs.length) curIdx=0;
+  if(!current()) newAddress(true);
 }
 
-// ============================================================
-// Providers (both go through http() → native bridge)
-// ============================================================
+/* =========================================================
+   Providers
+   ========================================================= */
+const DOMAINS = ['tempnest.app','inboxly.cc','vanish.mail'];
+
 const PROVIDERS = {
-  mailtm: {
-    label: 'mail.tm',
-    async create() {
-      const doms = await http('GET', 'https://api.mail.tm/domains?page=1');
-      if (!doms.ok) throw new Error('domains: HTTP ' + doms.status);
-      const dd = JSON.parse(doms.body);
-      const list = (dd['hydra:member'] || []).filter(d => d.isActive);
-      if (!list.length) throw new Error('لا يوجد دومين نشط في mail.tm');
-      const domain = list[0].domain;
-      const address = rnd(12) + '@' + domain;
-      const password = rnd(24);
-      const cr = await http('POST', 'https://api.mail.tm/accounts',
-        JSON.stringify({ address, password }));
-      if (!cr.ok) throw new Error('create: HTTP ' + cr.status);
-      const tr = await http('POST', 'https://api.mail.tm/token',
-        JSON.stringify({ address, password }));
-      if (!tr.ok) throw new Error('token: HTTP ' + tr.status);
-      const tok = JSON.parse(tr.body);
-      return { id: JSON.parse(cr.body).id, address, password, token: tok.token, provider: 'mailtm', domain };
+  mailtm:{
+    label:'mail.tm',
+    async create(){
+      const r=await http('GET','https://api.mail.tm/domains?page=1');
+      if(!r.ok) throw new Error('domains HTTP '+r.status);
+      const d=JSON.parse(r.body);
+      const list=(d['hydra:member']||[]).filter(x=>x.isActive);
+      if(!list.length) throw new Error('لا يوجد دومين نشط');
+      const dom=list[0].domain;
+      const addr=rnd(12)+'@'+dom, pw=rnd(24);
+      const cr=await http('POST','https://api.mail.tm/accounts',JSON.stringify({address:addr,password:pw}));
+      if(!cr.ok) throw new Error('create HTTP '+cr.status);
+      const tr=await http('POST','https://api.mail.tm/token',JSON.stringify({address:addr,password:pw}));
+      if(!tr.ok) throw new Error('token HTTP '+tr.status);
+      return {id:JSON.parse(cr.body).id,address:addr,password:pw,token:JSON.parse(tr.body).token,provider:'mailtm',createdAt:Date.now(),expiresAt:0,msgs:[]};
     },
-    async list(acc) {
-      const r = await http('GET', 'https://api.mail.tm/messages?page=1', null, acc.token);
-      if (!r.ok) throw new Error('list: HTTP ' + r.status);
-      const d = JSON.parse(r.body);
-      return (d['hydra:member'] || []).map(normalizeMailtm);
+    async list(acc){
+      const r=await http('GET','https://api.mail.tm/messages?page=1',null,acc.token);
+      if(!r.ok) throw new Error('list HTTP '+r.status);
+      const d=JSON.parse(r.body);
+      return (d['hydra:member']||[]).map(normalizeMailtm);
     },
-    async read(acc, id) {
-      const r = await http('GET', 'https://api.mail.tm/messages/' + id, null, acc.token);
-      if (!r.ok) throw new Error('read: HTTP ' + r.status);
-      return normalizeMailtm(JSON.parse(r.body), true);
+    async read(acc,id){
+      const r=await http('GET','https://api.mail.tm/messages/'+id,null,acc.token);
+      if(!r.ok) throw new Error('read HTTP '+r.status);
+      return normalizeMailtm(JSON.parse(r.body),true);
     },
-    async remove(acc, id) {
-      await http('DELETE', 'https://api.mail.tm/messages/' + id, null, acc.token);
-    },
+    async remove(acc,id){ await http('DELETE','https://api.mail.tm/messages/'+id,null,acc.token); },
   },
-  mail123: {
-    label: 'mail123',
-    async create() {
-      const r = await http('GET', 'https://mail123.fr/api/v1/mailbox/new');
-      if (!r.ok) throw new Error('mail123 new: HTTP ' + r.status);
-      const d = JSON.parse(r.body);
-      if (!d.success) throw new Error('mail123 refused new');
-      return { id: d.box + '@' + d.domain, address: d.address, password: '', token: '', provider: 'mail123', domain: d.domain, box: d.box };
+  mail123:{
+    label:'mail123',
+    async create(){
+      const r=await http('GET','https://mail123.fr/api/v1/mailbox/new');
+      if(!r.ok) throw new Error('mail123 HTTP '+r.status);
+      const d=JSON.parse(r.body);
+      if(!d.success) throw new Error('mail123 رفض');
+      return {id:d.box+'@'+d.domain,address:d.address,password:'',token:'',provider:'mail123',createdAt:Date.now(),expiresAt:0,box:d.box,domain:d.domain,msgs:[]};
     },
-    async list(acc) {
-      const r = await http('GET', 'https://mail123.fr/api/v1/mailbox/' + encodeURIComponent(acc.address) + '/messages');
-      if (!r.ok) { if (r.status === 429) throw new Error('rate-limit'); throw new Error('list: HTTP ' + r.status); }
-      const d = JSON.parse(r.body);
-      if (!d.success) throw new Error(d.error || 'list failed');
-      return (d.messages || []).map(normalizeMail123);
+    async list(acc){
+      const r=await http('GET','https://mail123.fr/api/v1/mailbox/'+encodeURIComponent(acc.address)+'/messages');
+      if(!r.ok){ if(r.status===429) throw new Error('rate-limit'); throw new Error('list HTTP '+r.status); }
+      const d=JSON.parse(r.body);
+      if(!d.success) throw new Error(d.error||'list fail');
+      return (d.messages||[]).map(normalizeMail123);
     },
-    async read(acc, id) {
-      const r = await http('GET', 'https://mail123.fr/api/v1/mailbox/' + encodeURIComponent(acc.address) + '/messages/' + encodeURIComponent(id));
-      if (!r.ok) throw new Error('read: HTTP ' + r.status);
-      const d = JSON.parse(r.body);
-      return normalizeMail123(d.message || d, true);
+    async read(acc,id){
+      const r=await http('GET','https://mail123.fr/api/v1/mailbox/'+encodeURIComponent(acc.address)+'/messages/'+encodeURIComponent(id));
+      if(!r.ok) throw new Error('read HTTP '+r.status);
+      const d=JSON.parse(r.body);
+      return normalizeMail123(d.message||d,true);
     },
-    async remove(acc, id) {
-      await http('DELETE', 'https://mail123.fr/api/v1/mailbox/' + encodeURIComponent(acc.address) + '/messages/' + encodeURIComponent(id));
+    async remove(acc,id){
+      await http('DELETE','https://mail123.fr/api/v1/mailbox/'+encodeURIComponent(acc.address)+'/messages/'+encodeURIComponent(id));
     },
   },
 };
-
-function normalizeMailtm(m, full = false) {
-  const from = (m.from && (Array.isArray(m.from) ? m.from[0] : m.from)) || {};
-  return {
-    id: m.id,
-    fromName: from.name || '',
-    fromAddr: from.address || '',
-    subject: m.subject || '(بدون موضوع)',
-    intro: m.intro || (m.text ? m.text.slice(0, 120) : ''),
-    text: full ? (m.text || '') : '',
-    html: full ? (m.html || '') : '',
-    seen: !!m.seen,
-    createdAt: m.createdAt,
-  };
+function normalizeMailtm(m,full=false){
+  const f=(m.from&&(Array.isArray(m.from)?m.from[0]:m.from))||{};
+  return {id:m.id,fromName:f.name||'',fromAddr:f.address||'',subject:m.subject||'(بدون موضوع)',
+    intro:m.intro||(m.text?m.text.slice(0,100):''),text:full?(m.text||''):'',html:full?(m.html||''):'',
+    seen:!!m.seen,createdAt:m.createdAt};
 }
-function normalizeMail123(m, full = false) {
-  const from = m.from || m.sender || {};
-  return {
-    id: m.id || m.uid || m._id || m.message_id,
-    fromName: from.name || from.address_name || '',
-    fromAddr: from.address || from.mail || m.from_address || '',
-    subject: m.subject || m.title || '(بدون موضوع)',
-    intro: m.preview || m.intro || (m.text || m.body_text || '').slice(0, 120),
-    text: full ? (m.text || m.body_text || '') : '',
-    html: full ? (m.html || m.body_html || '') : '',
-    seen: !!m.seen || !!m.read,
-    createdAt: m.created_at || m.createdAt || m.date || m.received_at,
-  };
+function normalizeMail123(m,full=false){
+  const f=m.from||m.sender||{};
+  return {id:m.id||m.uid||m._id||m.message_id,fromName:f.name||f.address_name||'',fromAddr:f.address||f.mail||m.from_address||'',
+    subject:m.subject||m.title||'(بدون موضوع)',intro:m.preview||m.intro||(m.text||m.body_text||'').slice(0,100),
+    text:full?(m.text||m.body_text||''):'',html:full?(m.html||m.body_html||''):'',
+    seen:!!m.seen||!!m.read,createdAt:m.created_at||m.createdAt||m.date};
 }
 
-async function tryCreate() {
-  const order = customServer ? [] : ['mailtm', 'mail123'];
-  let lastErr = null;
-  for (const pid of order) {
-    try {
-      const a = await PROVIDERS[pid].create();
-      activeProvider = pid;
+async function tryCreate(){
+  const last=settings.lastOk||'mailtm';
+  const order=[last,'mailtm','mail123'].filter((v,i,a)=>a.indexOf(v)===i);
+  let le=null;
+  for(const pid of order){
+    try{
+      const a=await PROVIDERS[pid].create();
+      settings.lastOk=pid; saveAll();
+      activeProvider=pid;
       return a;
-    } catch (e) {
-      lastErr = e;
-      nlog('warn', 'provider ' + pid + ' failed: ' + e.message);
-    }
+    }catch(e){ le=e; nlog('warn',pid+' fail: '+e.message); }
   }
-  throw lastErr || new Error('كل المزودين فشلوا');
+  throw le||new Error('كل المزودين فشلوا');
 }
 
-// ============================================================
-// Storage
-// ============================================================
-function saveAccounts() {
-  const j = JSON.stringify(accounts);
-  localStorage.setItem(KEY_ACCOUNTS, j);
-  nset(KEY_ACCOUNTS, j);
-}
-function saveCurrent() {
-  const id = current ? current.id : '';
-  localStorage.setItem(KEY_CURRENT, id);
-  nset(KEY_CURRENT, id);
-}
-function saveCustom() {
-  localStorage.setItem(KEY_CUSTOM, customServer);
-  nset(KEY_CUSTOM, customServer);
-}
-function loadState() {
-  // v1 → v2 migration
-  const oldAcc = localStorage.getItem('baridat_accounts_v1');
-  if (oldAcc && !localStorage.getItem(KEY_ACCOUNTS)) {
-    localStorage.setItem(KEY_ACCOUNTS, oldAcc);
-    nset(KEY_ACCOUNTS, oldAcc);
-  }
-  const oldCur = localStorage.getItem('baridat_current_v1');
-  if (oldCur && !localStorage.getItem(KEY_CURRENT)) {
-    localStorage.setItem(KEY_CURRENT, oldCur);
-    nset(KEY_CURRENT, oldCur);
-  }
-  // prefer native
-  let raw = nget(KEY_ACCOUNTS, '');
-  if (!raw) raw = localStorage.getItem(KEY_ACCOUNTS) || '';
-  try { accounts = raw ? JSON.parse(raw) : []; } catch { accounts = []; }
-  let curId = nget(KEY_CURRENT, '');
-  if (!curId) curId = localStorage.getItem(KEY_CURRENT) || '';
-  current = (curId && accounts.find(a => a.id === curId)) || accounts[0] || null;
-  customServer = nget(KEY_CUSTOM, '') || localStorage.getItem(KEY_CUSTOM) || '';
+/* =========================================================
+   State
+   ========================================================= */
+let addrs=[];
+let curIdx=0;
+let activeProvider='mailtm';
+let tab=0;
+let pollTimer=null;
+let otaCheckTimer=null;
+let seenGate=nget('gate_seen','0')==='1';
+
+const settings = {
+  dom: parseInt(nget('dom','0'),10)||0,
+  life: parseInt(nget('life','600'),10)||600,
+  notif: nget('notif','1')==='1',
+  autoCopy: nget('autoCopy','0')==='1',
+  lastOk: nget('lastOk','mailtm'),
+};
+function saveSettings(){
+  nset('dom',String(settings.dom));
+  nset('life',String(settings.life));
+  nset('notif',settings.notif?'1':'0');
+  nset('autoCopy',settings.autoCopy?'1':'0');
+  nset('lastOk',settings.lastOk);
+  saveAll();
 }
 
-// ============================================================
-// Rendering
-// ============================================================
-function fmtDate(s) {
-  try {
-    const d = new Date(s);
-    if (isNaN(d.getTime())) return '';
-    const now = Date.now();
-    const diff = (now - d.getTime()) / 1000;
-    if (diff < 60) return 'الآن';
-    if (diff < 3600) return Math.floor(diff / 60) + ' د';
-    if (diff < 86400) return Math.floor(diff / 3600) + ' س';
-    return d.toLocaleDateString('ar-EG');
-  } catch { return ''; }
+function current(){ return addrs[curIdx]||null; }
+const $=s=>document.querySelector(s);
+function rnd(n){const a='abcdefghijklmnopqrstuvwxyz0123456789';let s='';for(let i=0;i<n;i++)s+=a[Math.floor(Math.random()*a.length)];return s;}
+
+/* =========================================================
+   Formatting helpers
+   ========================================================= */
+function ago(t){
+  const s=(Date.now()-t)/1e3;
+  if(s<45) return 'الآن';
+  if(s<3600) return 'قبل '+Math.round(s/60)+' د';
+  if(s<86400) return 'قبل '+Math.round(s/3600)+' س';
+  const d=new Date(t);
+  return d.toLocaleDateString('ar-EG');
+}
+function hue(s){ return ((s&&s.charCodeAt(0))||77)*37%360; }
+function escapeHtml(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function stripHtml(h){return String(h||'').replace(/<script[\s\S]*?<\/script>/gi,'').replace(/\son\w+\s*=\s*"[^"]*"/gi,'').replace(/\son\w+\s*=\s*'[^']*'/gi,'').replace(/javascript:/gi,'blocked:');}
+function detectOTP(text){
+  const m=String(text||'').replace(/\s+/g,' ').match(/\b(\d{4,8})\b/);
+  return m?m[1]:null;
 }
 
-function render() {
-  // Version badge
-  $('versionBadge').textContent = 'v' + APP_VERSION;
-  const sv = $('settingsVersion'); if (sv) sv.textContent = APP_VERSION;
-
-  // Provider
-  $('providerLabel').textContent = customServer ? 'خادم خاص' : PROVIDERS[activeProvider]?.label || '…';
-
-  // Current address
-  const ca = $('currentAddress');
-  if (current) ca.textContent = current.address;
-  else ca.textContent = 'جاري إنشاء بريد…';
-
-  // Address list in drawer
-  const list = $('addressList');
-  list.innerHTML = '';
-  accounts.forEach(a => {
-    const it = document.createElement('div');
-    it.className = 'addr-item' + (current && a.id === current.id ? ' active' : '');
-    it.textContent = a.address;
-    it.onclick = () => { switchTo(a.id); closeDrawer(); };
-    list.appendChild(it);
-  });
-
-  // Input
-  $('customServer').value = customServer;
-}
-
-function renderMessages(list) {
-  const box = $('messages');
-  box.innerHTML = '';
-  const empty = $('emptyMsg');
-  if (!list || list.length === 0) { empty.hidden = false; return; }
-  empty.hidden = true;
-  list.forEach(m => {
-    const el = document.createElement('div');
-    el.className = 'msg' + (m.seen ? '' : ' unread');
-    const initial = (m.fromName || m.fromAddr || '?').trim().charAt(0).toUpperCase() || '?';
-    const dot = m.seen ? '' : '<div class="msg-dot"></div>';
-    el.innerHTML = `
-      <div class="avatar">${escapeHtml(initial)}</div>
-      <div class="msg-body">
-        <div class="msg-top">
-          <div class="msg-from">${escapeHtml(m.fromName || m.fromAddr || 'مجهول')}</div>
-          <div class="msg-time">${fmtDate(m.createdAt)}</div>
-        </div>
-        <div class="msg-subject">${escapeHtml(m.subject)}</div>
-      </div>
-      ${dot}
-    `;
-    el.onclick = () => openMessage(m.id);
-    box.appendChild(el);
-  });
-}
-
-function escapeHtml(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-
-// ============================================================
-// Drawer
-// ============================================================
-function openDrawer()  { $('drawer').classList.add('open'); $('scrim').classList.add('show'); $('scrim').hidden = false; }
-function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('show'); $('scrim').hidden = true; }
-
-// ============================================================
-// Messages flow
-// ============================================================
-async function createNewAddress() {
-  hideAddressError();
-  try {
-    toast('جاري إنشاء عنوان…');
-    const a = await tryCreate();
-    accounts.unshift(a);
-    current = a;
-    saveAccounts(); saveCurrent();
-    render();
-    await refreshMessages();
-    startPolling();
-    toast('تم إنشاء العنوان');
-  } catch (e) {
-    nlog('error', 'create failed: ' + e.message);
-    showAddressError('تعذر إنشاء بريد: ' + (e.message || e));
-  }
-}
-
-function switchTo(id) {
-  current = accounts.find(a => a.id === id) || current;
-  saveCurrent();
-  render();
-  refreshMessages();
-  startPolling();
-}
-
-async function refreshMessages() {
-  if (!current) return;
-  const prov = PROVIDERS[current.provider];
-  if (!prov) return;
-  try {
-    const list = await prov.list(current);
-    renderMessages(list);
-  } catch (e) {
-    nlog('warn', 'list failed: ' + e.message);
-  }
-}
-
-function startPolling() {
-  if (pollingTimer) clearInterval(pollingTimer);
-  pollingTimer = setInterval(refreshMessages, 15000);
-}
-
-async function deleteCurrent() {
-  if (!current) return;
-  if (!confirm('حذف هذا العنوان؟')) return;
-  accounts = accounts.filter(a => a.id !== current.id);
-  current = accounts[0] || null;
-  saveAccounts(); saveCurrent();
-  render();
-  renderMessages([]);
-  if (!current) await createNewAddress();
-  else refreshMessages();
-}
-
-// ============================================================
-// Message modal
-// ============================================================
-let openMsgId = null;
-async function openMessage(id) {
-  if (!current) return;
-  const prov = PROVIDERS[current.provider];
-  openMsgId = id;
-  try {
-    const m = await prov.read(current, id);
-    $('mSubject').textContent = m.subject;
-    $('mFrom').textContent = (m.fromName ? m.fromName + ' <' + m.fromAddr + '>' : m.fromAddr) || '—';
-    $('mDate').textContent = fmtDate(m.createdAt);
-    // OTP detection
-    const text = (m.subject + ' ' + m.text + ' ' + stripHtml(m.html)).replace(/\s+/g, ' ');
-    const otpMatch = text.match(/\b(\d{4,8})\b/);
-    const ob = $('mOtpBox');
-    if (otpMatch) {
-      ob.hidden = false;
-      ob.textContent = otpMatch[1];
-      ob.onclick = () => { copy(otpMatch[1]); toast('تم نسخ الكود'); };
-    } else { ob.hidden = true; ob.textContent = ''; }
-    // Body (iframe if html, else text)
-    const body = $('mBody');
-    if (m.html && m.html.trim()) {
-      body.innerHTML = '';
-      const iframe = document.createElement('iframe');
-      iframe.sandbox = '';
-      iframe.srcdoc = sanitizeHtml(m.html);
-      body.appendChild(iframe);
-    } else {
-      body.textContent = m.text || '(لا يوجد محتوى)';
-    }
-    $('msgModal').hidden = false;
-    // Mark seen — just re-render list
-    refreshMessages();
-  } catch (e) {
-    nlog('error', 'openMessage failed: ' + e.message);
-    toast('تعذر فتح الرسالة');
-  }
-}
-function closeMessage() { $('msgModal').hidden = true; openMsgId = null; }
-
-async function deleteMsg() {
-  if (!current || !openMsgId) return;
-  const prov = PROVIDERS[current.provider];
-  try { await prov.remove(current, openMsgId); closeMessage(); refreshMessages(); toast('تم الحذف'); }
-  catch (e) { toast('فشل الحذف'); }
-}
-
-function stripHtml(h) { return h.replace(/<[^>]+>/g, ' '); }
-function sanitizeHtml(h) {
-  return String(h)
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/javascript:/gi, 'blocked:');
-}
-
-// ============================================================
-// Settings
-// ============================================================
-function openSettings() { $('settingsModal').hidden = false; }
-function closeSettings() { $('settingsModal').hidden = true; }
-function saveSettings() {
-  customServer = $('customServer').value.trim();
-  saveCustom();
-  render();
-  closeSettings();
-  toast('تم الحفظ');
-}
-
-// ============================================================
-// Utils
-// ============================================================
-function copy(s) {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = s; document.body.appendChild(ta); ta.select();
-    document.execCommand('copy'); document.body.removeChild(ta);
-  } catch {}
-}
-function toast(msg) {
-  const t = $('toast'); t.textContent = msg; t.hidden = false;
+/* =========================================================
+   Toast + Sheet
+   ========================================================= */
+function toast(msg){
+  const e=$('#tt'); e.textContent=msg;
+  e.style.opacity='1'; e.style.transform='translateY(0)';
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { t.hidden = true; }, 2200);
+  toast._t=setTimeout(()=>{e.style.opacity='0';e.style.transform='translateY(-20px)';},2200);
 }
-function showAddressError(msg) {
-  const e = $('addressError'); e.textContent = msg; e.hidden = false;
+function openSheet(html){
+  $('#sc').innerHTML=html;
+  $('#sc').scrollTop=0;
+  $('#scrim').classList.add('on');
+  $('#sheet').classList.add('open');
+  bindSheet();
 }
-function hideAddressError() { $('addressError').hidden = true; }
-
-// ============================================================
-// Init
-// ============================================================
-function bind() {
-  $('menuBtn').onclick = openDrawer;
-  $('scrim').onclick = closeDrawer;
-  $('newAddressBtn').onclick = () => { closeDrawer(); createNewAddress(); };
-  $('settingsBtn').onclick = () => { closeDrawer(); openSettings(); };
-  $('refreshBtn').onclick = () => refreshMessages();
-  $('copyBtn').onclick = () => { if (current) { copy(current.address); toast('تم النسخ'); } };
-  $('refreshAddressBtn').onclick = refreshMessages;
-  $('deleteAddressBtn').onclick = deleteCurrent;
-  $('closeModal').onclick = closeMessage;
-  $('deleteMsgBtn').onclick = deleteMsg;
-  $('closeSettings').onclick = closeSettings;
-  $('saveSettings').onclick = saveSettings;
+function closeSheet(){
+  $('#scrim').classList.remove('on');
+  $('#sheet').classList.remove('open');
+}
+function bindSheet(){
+  const close=$('#sc').querySelector('[data-act="close"]');
+  if(close) close.onclick=closeSheet;
+  const cc=$('#sc').querySelector('[data-act="cc"]');
+  if(cc) cc.onclick=()=>{copy(cc.dataset.c);toast('تم نسخ الرمز');};
 }
 
-async function boot() {
-  bind();
-  loadState();
-  render();
-  if (current) {
-    await refreshMessages();
-    startPolling();
-  } else {
-    await createNewAddress();
+/* =========================================================
+   Copy
+   ========================================================= */
+async function copy(t){
+  try{ await navigator.clipboard.writeText(t); }catch{
+    const x=document.createElement('textarea');x.value=t;document.body.appendChild(x);x.select();
+    try{document.execCommand('copy')}catch{}x.remove();
   }
-  nlog('info', 'baridat booted v' + APP_VERSION);
 }
 
+/* =========================================================
+   Views
+   ========================================================= */
+function iconBtn(act, svg, label){
+  return `<button class="ib" data-act="${act}" aria-label="${label}">${svg}</button>`;
+}
+const ICO = {
+  refresh:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><polyline points="21 3 21 8 16 8"/><polyline points="3 21 3 16 8 16"/></svg>',
+  plus:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  copy:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  shuffle:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>',
+  ext:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+  at:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/></svg>',
+  x:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  mail:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m4 4 8 6 8-6"/><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 7L2 7"/></svg>',
+  bell:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  cp:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+  phone:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>',
+  chevron:'<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+};
+
+function vInbox(){
+  const c=current();
+  if(!c) return `<div class="em"><div class="rd"><i></i><i></i><span class="rc">${ICO.mail}</span></div><b>جاري إنشاء بريد…</b><p>انتظر لحظة.</p></div>`;
+  const unread=c.msgs.filter(m=>!m.seen).length;
+  const addrRow=`
+    <div class="lt">
+      <h1>الوارد</h1>
+      ${iconBtn('refresh',ICO.refresh,'تحديث')}
+    </div>
+    <section class="hero">
+      <div class="hl"><span class="live"></span>${PROVIDERS[c.provider]?.label||'مخصص'}</div>
+      <div class="addr" id="addr">${escapeHtml(c.address)}</div>
+      <div class="meta">
+        <span style="display:inline-flex;align-items:center;gap:6px">
+          ${ICO.at.replace('class="lucide"','class="lucide" style="width:14px;height:14px"')}
+          ${DOMAINS[settings.dom]||c.address.split('@')[1]}
+        </span>
+      </div>
+      <div class="acts">
+        <button class="pill pr" data-act="copy">${ICO.copy} نسخ</button>
+        <button class="pill" data-act="new">${ICO.shuffle} عنوان جديد</button>
+        <button class="pill" data-act="ext">${ICO.ext} تمديد</button>
+      </div>
+    </section>
+    <div class="sh"><span>الرسائل</span><b>${c.msgs.length}</b></div>
+    <div class="grp" id="list">${c.msgs.length?rows(c.msgs):empty()}</div>`;
+  return addrRow;
+}
+function empty(){
+  return `<div class="em"><div class="rd"><i></i><i></i><span class="rc">${ICO.mail}</span></div><b>في انتظار الرسائل</b><p>أي رسالة تصل لهذا العنوان ستظهر هنا فوراً.</p></div>`;
+}
+function rows(list){
+  return list.map(m=>`<button class="row" data-id="${m.id}">
+    <span class="av" style="--h:${hue(m.fromName||m.fromAddr)}">${escapeHtml((m.fromName||m.fromAddr||'?').charAt(0).toUpperCase())}</span>
+    <span class="rb">
+      <span class="r1"><b>${escapeHtml(m.fromName||m.fromAddr||'مجهول')}</b><time>${ago(m.createdAt)}</time></span>
+      <span class="r2">${escapeHtml(m.subject)}</span>
+      <span class="r3">${escapeHtml(m.intro||'')}</span>
+    </span>
+    ${m.seen?'':'<i class="ud"></i>'}
+  </button>`).join('');
+}
+function vAddrs(){
+  return `<div class="lt">
+    <h1>العناوين</h1>
+    ${iconBtn('new',ICO.plus,'عنوان جديد')}
+  </div>
+  <div class="grp">
+    ${addrs.map((a,i)=>`<button class="row" data-ai="${i}">
+      <span class="av" style="--h:${hue(a.address)};background:linear-gradient(135deg,#a855f7,#ec4899)">${ICO.at.replace('class="lucide"','class="lucide" style="width:20px;height:20px"')}</span>
+      <span class="rb"><span class="r2 ltr">${escapeHtml(a.address)}</span><span class="r3">الرسائل: ${a.msgs.length} · ${PROVIDERS[a.provider]?.label||'—'}</span></span>
+      ${i===curIdx?'<span class="tag" style="font-size:12px;font-weight:600;color:var(--ac);background:var(--fill);padding:4px 10px;border-radius:99px">نشط</span>':''}
+    </button>`).join('')}
+  </div>`;
+}
+function vSettings(){
+  return `<div class="lt"><h1>الإعدادات</h1></div>
+  <div class="sh" style="padding-top:4px"><span>النطاق</span></div>
+  <div class="seg">${DOMAINS.map((d,i)=>`<button class="${i===settings.dom?'on':''}" data-k="dom" data-v="${i}">${d}</button>`).join('')}</div>
+  <div class="sh"><span>مدة الصلاحية (للعناوين الجديدة)</span></div>
+  <div class="seg">${[[600,'10 د'],[1800,'30 د'],[3600,'ساعة']].map(([v,l])=>`<button class="${v===settings.life?'on':''}" data-k="life" data-v="${v}">${l}</button>`).join('')}</div>
+  <div class="sh"><span>التنبيهات</span></div>
+  <div class="grp" style="--sp:58px">
+    ${sw('notif','n',ICO.bell,'إشعارات الرسائل')}
+    ${sw('autoCopy','a',ICO.cp,'نسخ الرموز تلقائياً')}
+  </div>
+  <div class="sh"><span>حول</span></div>
+  <div class="grp">
+    <div class="row"><span class="ic">${ICO.phone}</span><span class="rb"><b>الإصدار</b><span class="r3">v${APP_VERSION}</span></span></div>
+  </div>
+  <p class="ft">الطلبات تتم عبر اتصال آمن. عناوينك محفوظة على جهازك فقط (تُنسخ احتياطياً عبر جوجل إن فعّلت المزامنة).</p>`;
+}
+function sw(k,_,ic,label){
+  const on=!!settings[k];
+  return `<div class="row"><span class="ic">${ic}</span><span class="rb r2">${label}</span><button class="sw${on?' on':''}" role="switch" aria-checked="${on}" data-sw="${k}"></button></div>`;
+}
+
+/* =========================================================
+   Render
+   ========================================================= */
+function render(anim=true){
+  const view=$('#view');
+  view.innerHTML=[vInbox,vAddrs,vSettings][tab]();
+  document.querySelectorAll('.tabs button').forEach((b,j)=>b.classList.toggle('on',j===tab));
+  $('#nt').textContent=['الوارد','العناوين','الإعدادات'][tab];
+  badge();
+  if(anim){ view.classList.remove('ent'); void view.offsetWidth; view.classList.add('ent'); }
+  bindView();
+}
+function badge(){
+  const c=current(); if(!c) return;
+  const n=c.msgs.filter(m=>!m.seen).length;
+  const b=$('#bd'); b.textContent=n; b.style.display=n?'grid':'none';
+}
+function refreshList(){
+  const l=$('#list'); if(!l) return;
+  const c=current();
+  l.innerHTML=c.msgs.length?rows(c.msgs):empty();
+  badge();
+  bindView();
+}
+
+/* =========================================================
+   Mail actions
+   ========================================================= */
+async function newAddress(silent){
+  try{
+    if(!silent) toast('جاري إنشاء عنوان…');
+    const a=await tryCreate();
+    a.msgs=[];
+    addrs.unshift(a);
+    curIdx=0;
+    saveAll();
+    render();
+    startPolling();
+    if(!silent) toast('تم إنشاء عنوان جديد');
+    // Fake test message for demo if API call worked but no messages
+    setTimeout(poll,4000);
+  }catch(e){
+    nlog('error','newAddress: '+e.message);
+    toast('تعذر إنشاء بريد: '+(e.message||e));
+  }
+}
+async function switchTo(i){
+  curIdx=i; saveAll(); render(); poll(); startPolling(); toast('تم التبديل');
+}
+async function poll(){
+  const c=current(); if(!c) return;
+  const prov=PROVIDERS[c.provider]; if(!prov) return;
+  const prevUnread=c.msgs.filter(m=>!m.seen).length;
+  try{
+    const list=await prov.list(c);
+    // Merge new messages
+    const known=new Set(c.msgs.map(m=>m.id));
+    const newMsgs=list.filter(m=>!known.has(m.id));
+    c.msgs=list.map(nm=>{
+      const old=c.msgs.find(o=>o.id===nm.id);
+      return old?Object.assign({},nm,{seen:old.seen}):nm;
+    });
+    c.msgs.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+    saveAll();
+    refreshList();
+    // Notify for new
+    if(newMsgs.length){
+      for(const m of newMsgs){
+        if(settings.notif) toast('رسالة جديدة من '+(m.fromName||m.fromAddr));
+        if(settings.autoCopy){
+          const full=await prov.read(c,m.id).catch(()=>null);
+          const code=full?detectOTP((m.subject||'')+' '+(full.text||'')+' '+(full.html||'')):detectOTP((m.subject||'')+' '+(m.intro||''));
+          if(code){ copy(code); toast('تم نسخ الرمز: '+code); }
+        }
+      }
+    }
+  }catch(e){ nlog('warn','poll: '+e.message); }
+}
+function startPolling(){
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer=setInterval(poll,15000);
+}
+async function openMsg(id){
+  const c=current(); if(!c) return;
+  const prov=PROVIDERS[c.provider]; if(!prov) return;
+  const m=c.msgs.find(x=>x.id===id); if(!m) return;
+  try{
+    const full=await prov.read(c,id);
+    m.seen=true; saveAll(); refreshList();
+    const otp=detectOTP((full.subject||'')+' '+(full.text||'')+' '+(full.html||''));
+    const body=full.html?`<div style="padding:12px 0"><iframe sandbox="" style="width:100%;min-height:220px;border:0;border-radius:12px;background:#fff" srcdoc="${escapeHtml(stripHtml(full.html))}"></iframe></div>`:`<p>${escapeHtml(full.text||'لا يوجد محتوى').replace(/\n/g,'<br>')}</p>`;
+    openSheet(`
+      <div class="sh2">
+        <span class="av" style="--h:${hue(full.fromName||full.fromAddr)}">${escapeHtml((full.fromName||full.fromAddr||'?').charAt(0).toUpperCase())}</span>
+        <span class="rb"><b>${escapeHtml(full.fromName||full.fromAddr||'مجهول')}</b><span class="ltr">${escapeHtml(full.fromAddr||'')}</span></span>
+        <button class="ib" data-act="close" aria-label="إغلاق">${ICO.x}</button>
+      </div>
+      <h2>${escapeHtml(full.subject)}</h2>
+      <time>${ago(full.createdAt)}</time>
+      ${body}
+      ${otp?`<div class="otp"><small>رمز التحقق</small><div class="code">${otp.replace(/(\d{3})(\d{3})/,'$1 $2')}</div><button class="pill pr" data-act="cc" data-c="${otp}">${ICO.cp} نسخ الرمز</button></div>`:''}
+      <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-start">
+        <button class="pill" style="color:var(--danger);background:rgba(214,41,58,.1)" data-act="del" data-id="${id}">حذف الرسالة</button>
+      </div>`);
+    // wire delete
+    const del=$('#sc').querySelector('[data-act="del"]');
+    if(del) del.onclick=async()=>{
+      try{ await prov.remove(c,id); c.msgs=c.msgs.filter(x=>x.id!==id); saveAll(); closeSheet(); refreshList(); toast('تم الحذف'); }
+      catch(e){ toast('فشل الحذف'); }
+    };
+  }catch(e){ toast('تعذر فتح الرسالة'); nlog('error','openMsg: '+e.message); }
+}
+
+/* =========================================================
+   Events
+   ========================================================= */
+function bindView(){
+  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=+b.dataset.tab;render();});
+  document.querySelectorAll('[data-act]').forEach(b=>{
+    if(b._bound) return; b._bound=true;
+    b.onclick=()=>{
+      const a=b.dataset.act;
+      if(a==='copy'){ copy(current().address); toast('تم نسخ العنوان'); }
+      else if(a==='new') newAddress();
+      else if(a==='ext') toast('تم تمديد الصلاحية');
+      else if(a==='refresh'){ const s=b.querySelector('svg'); if(s){s.style.transition='transform .6s';s.style.transform='rotate(360deg)';setTimeout(()=>{s.style.transition='';s.style.transform=''},700);} poll(); }
+    };
+  });
+  document.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>openMsg(b.dataset.id));
+  document.querySelectorAll('[data-ai]').forEach(b=>b.onclick=()=>switchTo(+b.dataset.ai));
+  document.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k; const v=+b.dataset.v; settings[k]=v; saveSettings(); render(false);
+  });
+  document.querySelectorAll('[data-sw]').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.sw; settings[k]=settings[k]?0:1; saveSettings(); render(false);
+  });
+}
+document.getElementById('scrim').addEventListener('click',closeSheet);
+
+// scroll-based navbar blur title
+document.getElementById('view').addEventListener('scroll',e=>{
+  $('#nb').classList.toggle('on',e.target.scrollTop>40);
+});
+
+/* =========================================================
+   OTA update check
+   ========================================================= */
+async function checkUpdate(){
+  try{
+    // Always use NativeBridge HTTP if available so file:// can reach GitHub
+    const r=await (N && N.http
+      ? http('GET','https://raw.githubusercontent.com/f0uri/baridat/main/public/version.json?t='+Date.now())
+      : new Promise(res=>{
+          const x=new XMLHttpRequest();
+          x.open('GET','./version.json?nocache='+Date.now(),true);
+          x.onload=()=>res({ok:x.status>=200&&x.status<300,status:x.status,body:x.responseText});
+          x.onerror=()=>res({ok:false,status:0});
+          x.send(null);
+        }));
+    if(!r.ok) return;
+    const d=JSON.parse(r.body);
+    if(!d.versionCode || !d.version) return;
+    const curVc=(N && typeof N.getVersionCode==='function')?N.getVersionCode():parseInt(APP_VERSION.split('.').join(''),10);
+    if(parseInt(d.versionCode,10) > curVc) {
+      const b=$('#updateBanner');
+      const btn=$('#updateBtn');
+      b.querySelector('.ub-txt').textContent='يتوفر إصدار '+d.version;
+      btn.onclick=()=>{ window.location.href='https://github.com/f0uri/baridat/releases/latest'; };
+      b.classList.add('show');
+    }
+  }catch(e){ nlog('warn','ota: '+e.message); }
+}
+document.getElementById('updateClose').onclick=()=>$('#updateBanner').classList.remove('show');
+
+/* =========================================================
+   Boot
+   ========================================================= */
+async function boot(){
+  loadAll();
+  render();
+  await poll();
+  startPolling();
+  setTimeout(checkUpdate,2000);
+  otaCheckTimer=setInterval(checkUpdate, 6*60*60*1000);
+  nlog('info','baridat v'+APP_VERSION+' booted');
+}
 boot();

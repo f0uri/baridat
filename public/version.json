@@ -1,8 +1,8 @@
 {
-  "version": "2.7.1",
-  "versionCode": 31,
-  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.7.1/baridat.apk",
-  "releaseNotes": "إصلاح اختيار النطاقات البديلة مع الحفاظ على صندوق البريد والجلسة.",
-  "updatedAt": "2026-11-15T18:43:38Z",
+  "version": "2.7.2",
+  "versionCode": 32,
+  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.7.2/baridat.apk",
+  "releaseNotes": "تحسين فحص الوارد والحفاظ على جلسة البريد عند فشل إنشاء عنوان جديد.",
+  "updatedAt": "2026-11-15T18:58:06Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

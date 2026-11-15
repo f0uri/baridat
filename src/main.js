@@ -93,7 +93,7 @@ function render() {
   $('#refresh').disabled = !session || busy;
   $('#counter').textContent = messages.length;
   const seen = new Set(session?.seen_ids || []);
-  $('#list').innerHTML = messages.length ? messages.map(m => `<button class="row glass message-row" data-id="${esc(m.mail_id)}"><span class="av">${esc(String(m.mail_from || '?').charAt(0).toUpperCase())}</span><span class="rb"><span class="r1"><b dir="auto">${esc(m.mail_from || 'مرسل غير معروف')}</b><time>${esc(formatTime(m.mail_timestamp || m.mail_date))}</time></span><span class="r2" dir="auto">${esc(m.mail_subject || '(بدون موضوع)')}</span><span class="r3" dir="auto">${esc(m.mail_excerpt || '')}</span></span>${seen.has(String(m.mail_id)) ? '' : '<i class="ud"></i>'}</button>`).join('') : `<div class="em"><div class="empty-visual"><i></i><i></i><div class="empty-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m4 7 8 6 8-6"/></svg></div><span class="spark s1">✦</span><span class="spark s2">✦</span></div><b>لا توجد رسائل بعد</b><p>عندما تصلك رسالة، ستجدها هنا مباشرةً.</p><span class="empty-hint">يتم التحديث تلقائياً</span></div>`;
+  $('#list').innerHTML = messages.length ? messages.map(m => `<button class="row glass message-row" data-id="${esc(m.mail_id)}"><span class="av">${esc(String(m.mail_from || '?').charAt(0).toUpperCase())}</span><span class="rb"><span class="r1"><b dir="auto">${esc(m.mail_from || 'مرسل غير معروف')}</b><time>${esc(formatTime(m.mail_timestamp || m.mail_date))}</time></span><span class="r2" dir="auto">${esc(m.mail_subject || '(بدون موضوع)')}</span><span class="r3" dir="auto">${esc(m.mail_excerpt || '')}</span></span>${seen.has(String(m.mail_id)) ? '' : '<i class="ud"></i>'}</button>`).join('') : `<div class="em"><div class="empty-visual"><i></i><i></i><div class="empty-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m4 7 8 6 8-6"/></svg></div><span class="spark s1">✦</span><span class="spark s2">✦</span></div>${connected ? '<b>لا توجد رسائل بعد</b><p>عندما تصل رسالة إلى صندوقك ستظهر هنا.</p><span class="empty-hint">يتم التحديث تلقائياً</span>' : '<b>لم يتم التأكد من الوارد</b><p>تحقق من حالة الاتصال أعلاه ثم أعد تحديث الوارد.</p>'}</div>`;
 }
 function setError(error) { connected = false; status = error?.message || 'تعذر الاتصال بخدمة البريد'; render(); }
 function showSheet(content) { sheetRevision++; $('#sc').innerHTML = content; $('#scrim').classList.add('on'); $('#sheet').classList.add('open'); }
@@ -138,7 +138,8 @@ async function changeDomain(site) {
   poll();
 }
 async function poll(manual = false) {
-  if (!session || busy || polling) return;
+  if (!session || busy) return;
+  if (polling) { if (manual) toast('جاري تحديث الوارد…'); return; }
   polling = true;
   const target = session;
   try {
@@ -147,7 +148,7 @@ async function poll(manual = false) {
     const known = new Set(session.known_ids || []);
     const fresh = list.filter(m => !known.has(String(m.mail_id)));
     session.known_ids = [...new Set([...known, ...list.map(m => String(m.mail_id))])].slice(-5000);
-    messages = list; save(); connected = true; lastCheck = Date.now(); status = 'متصل · فحص تلقائي كل ٦ ثوانٍ'; render();
+    messages = list; save(); connected = true; lastCheck = Date.now(); status = 'تم فحص الوارد · كل ٦ ثوانٍ'; render();
     if (fresh.length) toast(`وصلت ${fresh.length === 1 ? 'رسالة جديدة' : fresh.length + ' رسائل جديدة'}`);
     else if (manual) toast('تم تحديث الوارد');
   } catch (error) { if (session === target) {setError(error); if (manual) toast(error.message);} }
@@ -201,7 +202,7 @@ function switchTab(settings) {
 }
 $('#inboxTab').onclick = () => switchTab(false);
 $('#settingsTab').onclick = () => switchTab(true);
-try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.7.1'); } catch {}
+try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.7.2'); } catch {}
 $('#copyAddress').onclick = () => session && copy(displayAddress(session));
 $('#random').onclick = create;
 $('#custom').onclick = customSheet;

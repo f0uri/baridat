@@ -60,8 +60,9 @@ export class GuerrillaMail {
       const initial = await this.call('get_email_address', {lang:'en'}, null);
       if (!initial.sid_token || !initial.email_addr) throw new Error('لم تُرجع خدمة البريد جلسة صالحة');
       const session = {sid_token:initial.sid_token, email_addr:initial.email_addr, seen_ids:[], known_ids:[]};
-      // Persist the usable session even if the second step fails.
-      this.update(session, initial);
+      // Keep an existing inbox intact until the replacement is confirmed.
+      // On first launch retain the valid initial inbox if setting the name fails.
+      if (!this.session) this.update(session, initial);
       const changed = await this.call('set_email_user', {email_user:name, lang:'en'}, session);
       if (!changed.email_addr) throw new Error('لم تؤكد الخدمة تغيير العنوان');
       this.update(session, changed);
@@ -114,7 +115,7 @@ export class GuerrillaMail {
         throw new Error('جلسة البريد لم تعد تطابق العنوان المعروض. أنشئ عنواناً جديداً لتجنب فقد الرسائل.');
       }
       this.update(this.session, data);
-      return data.list.filter(m => m && m.mail_id != null && !/no-reply@guerrillamail\.com/i.test(String(m.mail_from || '')));
+      return data.list.filter(m => m && m.mail_id != null && !(String(m.mail_id) === '1' && /no-reply@guerrillamail\.com/i.test(String(m.mail_from || '')) && /welcome to guerrilla mail/i.test(String(m.mail_subject || ''))));
     });
   }
   read(id, delay = wait) {

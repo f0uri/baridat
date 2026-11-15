@@ -163,6 +163,39 @@ async function openMessage(id) {
     $('#sc').querySelectorAll('[data-link-index]').forEach(button => button.onclick = () => openExternal(links[Number(button.dataset.linkIndex)]));
   } catch (error) { if (revision !== sheetRevision || target !== session) return; showSheet(`<div class="sheet-title"><h2>تعذر فتح الرسالة</h2><button class="ib" data-close aria-label="إغلاق">×</button></div><p>${esc(error.message)}</p><button class="pill pr" data-retry="${esc(id)}">إعادة المحاولة</button>`); }
 }
+// A short synthetic tap: played only after user interaction and can be muted in settings.
+let soundEnabled = true, audioContext;
+try { soundEnabled = (N?.loadString('click_sound', '1') ?? localStorage.getItem('click_sound') ?? '1') !== '0'; } catch {}
+function updateSoundToggle() {
+  const toggle = $('#soundToggle'); toggle.classList.toggle('on', soundEnabled); toggle.setAttribute('aria-checked', String(soundEnabled));
+}
+function clickSound() {
+  if (!soundEnabled) return;
+  try {
+    const Audio = window.AudioContext || window.webkitAudioContext;
+    if (!Audio) return;
+    audioContext ||= new Audio();
+    if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+    const now = audioContext.currentTime, oscillator = audioContext.createOscillator(), gain = audioContext.createGain();
+    oscillator.type = 'sine'; oscillator.frequency.setValueAtTime(1400, now); oscillator.frequency.exponentialRampToValueAtTime(700, now + .025);
+    gain.gain.setValueAtTime(.035, now); gain.gain.exponentialRampToValueAtTime(.0001, now + .035);
+    oscillator.connect(gain); gain.connect(audioContext.destination); oscillator.start(now); oscillator.stop(now + .04);
+  } catch {}
+}
+document.addEventListener('click', event => { const button = event.target.closest('button'); if (button && !button.disabled) clickSound(); }, true);
+$('#soundToggle').onclick = () => {
+  soundEnabled = !soundEnabled; updateSoundToggle();
+  try { localStorage.setItem('click_sound', soundEnabled ? '1' : '0'); N?.storeString('click_sound', soundEnabled ? '1' : '0'); } catch {}
+};
+updateSoundToggle();
+function switchTab(settings) {
+  $('#view').hidden = settings; $('#settingsView').hidden = !settings;
+  $('#inboxTab').classList.toggle('on', !settings); $('#settingsTab').classList.toggle('on', settings);
+  $('#inboxTab').toggleAttribute('aria-current', !settings); $('#settingsTab').toggleAttribute('aria-current', settings);
+}
+$('#inboxTab').onclick = () => switchTab(false);
+$('#settingsTab').onclick = () => switchTab(true);
+try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.6.0'); } catch {}
 $('#copyAddress').onclick = () => session && copy(session.email_addr);
 $('#random').onclick = create;
 $('#custom').onclick = customSheet;
@@ -181,21 +214,44 @@ load(); api.restore(session); render();
 if (session) poll(); else create();
 setInterval(() => {if (!document.hidden && (!lastCheck || Date.now() - lastCheck >= 6000)) poll();}, 6000);
 
-// Preserve the app's existing update check; downloads always use the trusted release page.
-async function checkUpdate() {
+// Native Android downloads a verified GitHub release; the browser cannot install APKs.
+let updateUrl = '', updateState = 'idle';
+window.onNativeUpdate = raw => {
+  let result; try { result = JSON.parse(raw); } catch { return; }
+  updateState = result.state;
+  $('#updateBanner .ub-txt').textContent = result.message;
+  $('#updateBanner').classList.add('show');
+  $('#updateBtn').disabled = result.state === 'downloading' || result.state === 'permission' || result.state === 'installing';
+  $('#updateBtn').textContent = result.state === 'ready' ? 'تثبيت' : result.state === 'error' ? 'إعادة المحاولة' : result.state === 'downloading' ? 'تنزيل…' : 'تحديث';
+};
+async function checkUpdate(manual = false) {
   try {
+    if (manual) toast('جاري فحص التحديثات…');
     const response = await request('https://raw.githubusercontent.com/f0uri/baridat/main/public/version.json?t=' + Date.now());
-    if (!response.ok) return;
+    if (!response.ok) throw new Error();
     const info = JSON.parse(response.body);
-    const currentCode = N?.getVersionCode ? Number(N.getVersionCode()) : 28;
+    const currentCode = N?.getVersionCode ? Number(N.getVersionCode()) : 29;
     if (Number(info.versionCode) > currentCode && typeof info.version === 'string') {
-      $('#updateBanner .ub-txt').textContent = 'يتوفر إصدار ' + info.version;
-      $('#updateBanner').classList.add('show');
-    }
-  } catch {}
+      const url = new URL(info.apkUrl);
+      if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.port || url.search || url.hash || !/^\/f0uri\/baridat\/releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\/baridat\.apk$/.test(url.pathname)) throw new Error();
+      updateUrl = url.href;
+      if (!['downloading','permission','ready','installing'].includes(updateState)) {
+        updateState = 'available';
+        $('#updateBanner .ub-txt').textContent = 'يتوفر إصدار ' + info.version;
+        $('#updateBtn').disabled = false; $('#updateBtn').textContent = 'تحديث';
+        $('#updateBanner').classList.add('show');
+      }
+    } else if (manual) toast('أنت تستخدم آخر إصدار');
+  } catch { if (manual) toast('تعذر فحص التحديثات'); }
 }
-$('#updateBtn').onclick = () => openExternal('https://github.com/f0uri/baridat/releases/latest');
+$('#updateBtn').onclick = () => {
+  if (!N?.downloadUpdate) { toast('تنزيل التحديث داخل التطبيق متاح على أندرويد فقط'); return; }
+  if (updateState === 'ready') { N.installUpdate(); return; }
+  if (updateUrl) N.downloadUpdate(updateUrl); else { toast('جاري التحقق من الإصدار'); checkUpdate(true); }
+};
+$('#checkUpdate').onclick = () => checkUpdate(true);
 $('#updateClose').onclick = () => $('#updateBanner').classList.remove('show');
-setTimeout(checkUpdate, 2500);
-setInterval(checkUpdate, 6 * 60 * 60 * 1000);
+try { N?.updateStatus?.(); } catch {}
+setTimeout(() => checkUpdate(), 2500);
+setInterval(() => checkUpdate(), 6 * 60 * 60 * 1000);
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch(() => {});

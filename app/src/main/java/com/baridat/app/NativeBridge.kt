@@ -79,6 +79,12 @@ class NativeBridge(private val activity: Activity) {
         }
     }
 
+    @JavascriptInterface fun downloadUpdate(url: String?) {
+        if (url != null) (activity as? MainActivity)?.downloadUpdate(url)
+    }
+    @JavascriptInterface fun installUpdate() { (activity as? MainActivity)?.installUpdate() }
+    @JavascriptInterface fun updateStatus() { (activity as? MainActivity)?.updateStatus() }
+
     @JavascriptInterface fun openUrl(url: String?) {
         if (url.isNullOrEmpty()) return
         activity.runOnUiThread {

@@ -27,7 +27,15 @@ jobs:
           while IFS= read -r line; do echo "::error::$line"; done < analysis.txt
           ! grep -q "  error •" analysis.txt
       - run: flutter test
-      - run: flutter build apk --release
+      - name: Build Flutter APK
+        run: |
+          set +e
+          flutter build apk --release > build-output.txt 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            tail -50 build-output.txt | while IFS= read -r line; do echo "::error::$line"; done
+          fi
+          exit "$status"
       - uses: actions/upload-artifact@v4
         with:
           name: flutter-test-apk

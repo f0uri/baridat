@@ -41,7 +41,7 @@ function http(method, url, body, token) {
 }
 
 // ============================================================
-// Version
+// Version — from the native bridge only (never version.json on file://)
 // ============================================================
 let APP_VERSION = '0.0.0';
 (function resolveVersion() {
@@ -49,16 +49,6 @@ let APP_VERSION = '0.0.0';
     if (N && typeof N.getAppVersion === 'function') {
       const v = N.getAppVersion();
       if (v && /^\d+\.\d+\.\d+/.test(v)) { APP_VERSION = v; return; }
-    }
-  } catch {}
-  // Fallback: xhr version.json (works on file://)
-  try {
-    const x = new XMLHttpRequest();
-    x.open('GET', './version.json', false);
-    x.send(null);
-    if (x.status === 200 || x.status === 0) {
-      const d = JSON.parse(x.responseText);
-      if (d && d.version) APP_VERSION = d.version;
     }
   } catch {}
 })();
@@ -75,6 +65,7 @@ let current = null;
 let customServer = '';
 let activeProvider = 'mailtm';
 let pollingTimer = null;
+let activeView = 'mail';
 
 function $(id) { return document.getElementById(id); }
 function rnd(n) {
@@ -83,10 +74,38 @@ function rnd(n) {
   for (let i = 0; i < n; i++) s += a[Math.floor(Math.random() * a.length)];
   return s;
 }
+function fmtTime(d) {
+  try { return new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
+}
 
 // ============================================================
-// Providers (both go through http() → native bridge)
+// Providers (both go through http() -> native bridge)
 // ============================================================
+// mail.tm helper: on 401, re-create the token from the stored account
+// credentials and retry the request once.
+async function mailtmReq(acc, method, url, body) {
+  let r = await http(method, url, body || null, acc.token);
+  if (r.status === 401 && acc.password) {
+    nlog('warn', 'mail.tm 401 — re-authenticating token');
+    try {
+      const tr = await http('POST', 'https://api.mail.tm/token',
+        JSON.stringify({ address: acc.address, password: acc.password }));
+      if (tr.ok) {
+        const tok = JSON.parse(tr.body);
+        if (tok.token) {
+          acc.token = tok.token;
+          saveAccounts();
+          r = await http(method, url, body || null, acc.token);
+        }
+      }
+    } catch (e) {
+      nlog('warn', 'mail.tm re-auth failed: ' + e.message);
+    }
+  }
+  return r;
+}
+
 const PROVIDERS = {
   mailtm: {
     label: 'mail.tm',
@@ -109,18 +128,18 @@ const PROVIDERS = {
       return { id: JSON.parse(cr.body).id, address, password, token: tok.token, provider: 'mailtm', domain };
     },
     async list(acc) {
-      const r = await http('GET', 'https://api.mail.tm/messages?page=1', null, acc.token);
+      const r = await mailtmReq(acc, 'GET', 'https://api.mail.tm/messages?page=1');
       if (!r.ok) throw new Error('list: HTTP ' + r.status);
       const d = JSON.parse(r.body);
       return (d['hydra:member'] || []).map(normalizeMailtm);
     },
     async read(acc, id) {
-      const r = await http('GET', 'https://api.mail.tm/messages/' + id, null, acc.token);
+      const r = await mailtmReq(acc, 'GET', 'https://api.mail.tm/messages/' + id);
       if (!r.ok) throw new Error('read: HTTP ' + r.status);
       return normalizeMailtm(JSON.parse(r.body), true);
     },
     async remove(acc, id) {
-      await http('DELETE', 'https://api.mail.tm/messages/' + id, null, acc.token);
+      await mailtmReq(acc, 'DELETE', 'https://api.mail.tm/messages/' + id);
     },
   },
   mail123: {
@@ -209,12 +228,8 @@ function saveCurrent() {
   localStorage.setItem(KEY_CURRENT, id);
   nset(KEY_CURRENT, id);
 }
-function saveCustom() {
-  localStorage.setItem(KEY_CUSTOM, customServer);
-  nset(KEY_CUSTOM, customServer);
-}
 function loadState() {
-  // v1 → v2 migration
+  // v1 -> v2 migration
   const oldAcc = localStorage.getItem('baridat_accounts_v1');
   if (oldAcc && !localStorage.getItem(KEY_ACCOUNTS)) {
     localStorage.setItem(KEY_ACCOUNTS, oldAcc);
@@ -252,11 +267,11 @@ function fmtDate(s) {
 }
 
 function render() {
-  // Version badge
-  $('versionBadge').textContent = 'v' + APP_VERSION;
-  const sv = $('settingsVersion'); if (sv) sv.textContent = APP_VERSION;
+  // Version (About view)
+  $('aboutVersion').textContent = 'v' + APP_VERSION;
+  $('aboutProvider').textContent = customServer ? 'خادم خاص' : (PROVIDERS[activeProvider]?.label || '…');
 
-  // Provider
+  // Provider chip on the mailbox card
   $('providerLabel').textContent = customServer ? 'خادم خاص' : PROVIDERS[activeProvider]?.label || '…';
 
   // Current address
@@ -264,45 +279,64 @@ function render() {
   if (current) ca.textContent = current.address;
   else ca.textContent = 'جاري إنشاء بريد…';
 
-  // Address list in drawer
-  const list = $('addressList');
-  list.innerHTML = '';
-  accounts.forEach(a => {
-    const it = document.createElement('div');
-    it.className = 'addr-item' + (current && a.id === current.id ? ' active' : '');
-    it.textContent = a.address;
-    it.onclick = () => { switchTo(a.id); closeDrawer(); };
-    list.appendChild(it);
-  });
-
-  // Input
+  // Custom server input
   $('customServer').value = customServer;
 }
 
+// Mail status line — always visible under the mailbox card.
+// state: 'ok' (green, connected + last refresh time) | 'error' (red) | 'idle' (grey)
+function setMailStatus(state, timeStr) {
+  const dot = $('mailStatusDot');
+  const txt = $('mailStatusText');
+  dot.className = 'dot ' + (state === 'ok' ? 'ok' : state === 'error' ? 'err' : 'idle');
+  if (state === 'ok') txt.textContent = 'متصل • آخر تحديث ' + (timeStr || fmtTime(Date.now()));
+  else if (state === 'error') txt.textContent = 'تعذّر التحديث' + (timeStr ? ' • ' + timeStr : '');
+  else txt.textContent = '…';
+}
+
+// Refresh error banner — visible in both the mail and messages views.
+// Never fail silently: any list() failure shows here.
+function showRefreshError(msg) {
+  const b1 = $('refreshError'), b2 = $('refreshErrorTab');
+  const text = msg || 'تعذّر التحديث — تحقق من الاتصال وحاول مجدداً';
+  b1.textContent = text; b1.hidden = false;
+  b2.textContent = text; b2.hidden = false;
+}
+function hideRefreshError() {
+  $('refreshError').hidden = true;
+  $('refreshErrorTab').hidden = true;
+}
+
 function renderMessages(list) {
-  const box = $('messages');
-  box.innerHTML = '';
-  const empty = $('emptyMsg');
-  if (!list || list.length === 0) { empty.hidden = false; return; }
-  empty.hidden = true;
-  list.forEach(m => {
-    const el = document.createElement('div');
-    el.className = 'msg' + (m.seen ? '' : ' unread');
-    const initial = (m.fromName || m.fromAddr || '?').trim().charAt(0).toUpperCase() || '?';
-    const dot = m.seen ? '' : '<div class="msg-dot"></div>';
-    el.innerHTML = `
-      <div class="avatar">${escapeHtml(initial)}</div>
-      <div class="msg-body">
-        <div class="msg-top">
-          <div class="msg-from">${escapeHtml(m.fromName || m.fromAddr || 'مجهول')}</div>
-          <div class="msg-time">${fmtDate(m.createdAt)}</div>
+  const count = list ? list.length : 0;
+  const label = count === 0 ? '0 رسائل' : count === 1 ? 'رسالة واحدة' : count + ' رسائل';
+  $('msgCount').textContent = label;
+  $('msgCountTab').textContent = label;
+  [['messages', 'emptyMsg'], ['messagesTab', 'emptyMsgTab']].forEach(([boxId, emptyId]) => {
+    const box = $(boxId);
+    const empty = $(emptyId);
+    box.innerHTML = '';
+    if (!list || list.length === 0) { empty.hidden = false; return; }
+    empty.hidden = true;
+    list.forEach(m => {
+      const el = document.createElement('div');
+      el.className = 'msg' + (m.seen ? '' : ' unread');
+      const initial = (m.fromName || m.fromAddr || '?').trim().charAt(0).toUpperCase() || '?';
+      const dot = m.seen ? '' : '<div class="msg-dot"></div>';
+      el.innerHTML = `
+        <div class="avatar">${escapeHtml(initial)}</div>
+        <div class="msg-body">
+          <div class="msg-top">
+            <div class="msg-from">${escapeHtml(m.fromName || m.fromAddr || 'مجهول')}</div>
+            <div class="msg-time">${fmtDate(m.createdAt)}</div>
+          </div>
+          <div class="msg-subject">${escapeHtml(m.subject)}</div>
         </div>
-        <div class="msg-subject">${escapeHtml(m.subject)}</div>
-      </div>
-      ${dot}
-    `;
-    el.onclick = () => openMessage(m.id);
-    box.appendChild(el);
+        ${dot}
+      `;
+      el.onclick = () => openMessage(m.id);
+      box.appendChild(el);
+    });
   });
 }
 
@@ -313,10 +347,16 @@ function escapeHtml(s) {
 }
 
 // ============================================================
-// Drawer
+// Views (bottom tab bar)
 // ============================================================
-function openDrawer()  { $('drawer').classList.add('open'); $('scrim').classList.add('show'); $('scrim').hidden = false; }
-function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('show'); $('scrim').hidden = true; }
+function switchView(name) {
+  activeView = name;
+  ['mail', 'messages', 'about'].forEach(v => { $('view-' + v).hidden = (v !== name); });
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('on', t.dataset.view === name);
+  });
+  if (name === 'messages' && current) refreshMessages();
+}
 
 // ============================================================
 // Messages flow
@@ -339,14 +379,6 @@ async function createNewAddress() {
   }
 }
 
-function switchTo(id) {
-  current = accounts.find(a => a.id === id) || current;
-  saveCurrent();
-  render();
-  refreshMessages();
-  startPolling();
-}
-
 async function refreshMessages() {
   if (!current) return;
   const prov = PROVIDERS[current.provider];
@@ -354,8 +386,12 @@ async function refreshMessages() {
   try {
     const list = await prov.list(current);
     renderMessages(list);
+    hideRefreshError();
+    setMailStatus('ok', fmtTime(Date.now()));
   } catch (e) {
-    nlog('warn', 'list failed: ' + e.message);
+    nlog('error', 'list failed: ' + e.message);
+    showRefreshError();
+    setMailStatus('error', fmtTime(Date.now()));
   }
 }
 
@@ -372,6 +408,8 @@ async function deleteCurrent() {
   saveAccounts(); saveCurrent();
   render();
   renderMessages([]);
+  hideRefreshError();
+  setMailStatus('idle');
   if (!current) await createNewAddress();
   else refreshMessages();
 }
@@ -436,15 +474,13 @@ function sanitizeHtml(h) {
 }
 
 // ============================================================
-// Settings
+// Custom server (About view)
 // ============================================================
-function openSettings() { $('settingsModal').hidden = false; }
-function closeSettings() { $('settingsModal').hidden = true; }
-function saveSettings() {
+function saveCustom() {
   customServer = $('customServer').value.trim();
-  saveCustom();
+  localStorage.setItem(KEY_CUSTOM, customServer);
+  nset(KEY_CUSTOM, customServer);
   render();
-  closeSettings();
   toast('تم الحفظ');
 }
 
@@ -472,24 +508,27 @@ function hideAddressError() { $('addressError').hidden = true; }
 // Init
 // ============================================================
 function bind() {
-  $('menuBtn').onclick = openDrawer;
-  $('scrim').onclick = closeDrawer;
-  $('newAddressBtn').onclick = () => { closeDrawer(); createNewAddress(); };
-  $('settingsBtn').onclick = () => { closeDrawer(); openSettings(); };
-  $('refreshBtn').onclick = () => refreshMessages();
+  document.querySelectorAll('.tab').forEach(t => {
+    t.onclick = () => switchView(t.dataset.view);
+  });
+  $('newAddressBtn').onclick = () => createNewAddress();
   $('copyBtn').onclick = () => { if (current) { copy(current.address); toast('تم النسخ'); } };
   $('refreshAddressBtn').onclick = refreshMessages;
   $('deleteAddressBtn').onclick = deleteCurrent;
   $('closeModal').onclick = closeMessage;
   $('deleteMsgBtn').onclick = deleteMsg;
-  $('closeSettings').onclick = closeSettings;
-  $('saveSettings').onclick = saveSettings;
+  $('saveCustomBtn').onclick = saveCustom;
+  // Refresh when the page becomes visible again
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && current) refreshMessages();
+  });
 }
 
 async function boot() {
   bind();
   loadState();
   render();
+  setMailStatus('idle');
   if (current) {
     await refreshMessages();
     startPolling();

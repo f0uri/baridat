@@ -1,4 +1,4 @@
-const CACHE = 'baridat-cache-v1';
+const CACHE = 'baridat-cache-v2';
 const OFFLINE_URL = '/';
 const ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png'];
 

@@ -121,22 +121,14 @@ jobs:
           # Print cert fingerprint for verification
           keytool -list -v -keystore signing/baridat.jks -storepass baridat2026 -alias baridat | grep -E "Alias|SHA-256|MD5"
 
-      - name: Build release APK (tag) or debug APK (branch)
+      - name: Build debug APK
         id: build
         run: |
           set -o pipefail
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            VARIANT=release
-          else
-            VARIANT=debug
-          fi
-          echo "variant=${VARIANT}" >> "$GITHUB_OUTPUT"
-          gradle :app:assemble${VARIANT^} --stacktrace --no-daemon 2>&1 | tee /tmp/gradle.log
-          if [ "${VARIANT}" = "release" ]; then
-            APK="app/build/outputs/apk/release/app-release.apk"
-          else
-            APK="app/build/outputs/apk/debug/app-debug.apk"
-          fi
+          # Build the debug variant; on tag builds the debug variant is signed with
+          # the stable key (see signingConfigs.debug above) so upgrades work.
+          gradle :app:assembleDebug --stacktrace --no-daemon 2>&1 | tee /tmp/gradle.log
+          APK="app/build/outputs/apk/debug/app-debug.apk"
           echo "apk=${APK}" >> "$GITHUB_OUTPUT"
           ls -la "${APK}"
 

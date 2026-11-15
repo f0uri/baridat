@@ -1,8 +1,8 @@
 {
-  "version": "2.2.0",
-  "versionCode": 24,
+  "version": "2.3.0",
+  "versionCode": 25,
   "apkUrl": "https://github.com/f0uri/baridat/releases/latest/download/baridat.apk",
-  "releaseNotes": "واجهة مثل IG SAVE بدون قائمة جانبية + حالة البريد ظاهرة + لا فشل صامت.",
-  "updatedAt": "2026-11-15T13:15:00Z",
+  "releaseNotes": "واجهة زجاجية جديدة مثل التصميم المطلوب + رسائل حقيقية + تشخيص visible لأي فشل تحديث.",
+  "updatedAt": "2026-11-15T13:35:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

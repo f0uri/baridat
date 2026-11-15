@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.mail.tm</domain>
+        <domain includeSubdomains="true">mercure.mail.tm</domain>
+        <domain includeSubdomains="true">mail123.fr</domain>
+        <domain includeSubdomains="true">mail456.fr</domain>
+        <domain includeSubdomains="true">mail789.fr</domain>
+        <domain includeSubdomains="true">mail1mail.com</domain>
+        <domain includeSubdomains="true">mail123.click</domain>
+        <domain includeSubdomains="true">mail123.com.br</domain>
+        <domain includeSubdomains="true">mail123.beer</domain>
+        <domain includeSubdomains="true">mail123box.tech</domain>
+        <domain includeSubdomains="true">mail123.pro</domain>
+        <domain includeSubdomains="true">mail123.site</domain>
+        <domain includeSubdomains="true">mail123.online</domain>
+        <domain includeSubdomains="true">mail123.tech</domain>
+        <domain includeSubdomains="true">mail123.website</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+    </domain-config>
+</network-security-config>

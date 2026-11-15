@@ -16,7 +16,7 @@ function load() {
     const raw = (N && N.loadString(STORAGE, '')) || localStorage.getItem(STORAGE);
     const data = JSON.parse(raw || 'null');
     if (data && typeof data.email_addr === 'string' && typeof data.sid_token === 'string' && data.email_addr && data.sid_token) {
-      session = {email_addr:data.email_addr, sid_token:data.sid_token, seen_ids:Array.isArray(data.seen_ids) ? data.seen_ids.map(String) : [], known_ids:Array.isArray(data.known_ids) ? data.known_ids.map(String) : []};
+      session = {email_addr:data.email_addr, sid_token:data.sid_token, display_domain:DOMAINS.includes(data.display_domain) ? data.display_domain : undefined, seen_ids:Array.isArray(data.seen_ids) ? data.seen_ids.map(String) : [], known_ids:Array.isArray(data.known_ids) ? data.known_ids.map(String) : []};
     }
   } catch {}
 }
@@ -69,15 +69,20 @@ function formatTime(raw) {
   if (Number.isNaN(date.getTime())) return '';
   return new Intl.DateTimeFormat('ar', {hour:'2-digit',minute:'2-digit',month:'short',day:'numeric'}).format(date);
 }
+function displayAddress(value) {
+  if (!value) return '';
+  const [name, domain] = value.email_addr.split('@');
+  return name + '@' + (DOMAINS.includes(value.display_domain) ? value.display_domain : domain);
+}
 function domainOptions(current) {
   const extra = current && !DOMAINS.includes(current) ? `<option value="${esc(current)}" selected disabled>${esc(current)}</option>` : '';
   return extra + DOMAINS.map(domain => `<option value="${esc(domain)}"${domain === current ? ' selected' : ''}>${esc(domain)}</option>`).join('');
 }
 function render() {
-  const address = session?.email_addr || 'جاري إنشاء العنوان…';
+  const address = displayAddress(session) || 'جاري إنشاء العنوان…';
   $('#address').textContent = address;
   $('#domainError').textContent = domainError; $('#domainError').hidden = !domainError;
-  const domain = session?.email_addr.split('@')[1]?.toLowerCase() || '';
+  const domain = displayAddress(session).split('@')[1]?.toLowerCase() || '';
   $('#domainSelect').innerHTML = domainOptions(domain);
   $('#domainSelect').disabled = !session || busy;
   $('#statusText').textContent = status;
@@ -103,7 +108,7 @@ async function create() {
   if (session) poll();
 }
 function customSheet() {
-  const [user, domain] = session.email_addr.split('@');
+  const [user, domain] = displayAddress(session).split('@');
   showSheet(`<div class="sheet-title"><h2>تخصيص العنوان</h2><button class="ib" data-close aria-label="إغلاق">×</button></div><p>اكتب اسم البريد الجديد. قد يكون الاسم مستخدمًا من شخص آخر.</p><form id="customForm"><label for="customName">اسم البريد والنطاق</label><div class="address-fields" dir="ltr"><input id="customName" dir="ltr" maxlength="30" autocomplete="off" value="${esc(user)}" placeholder="your.name"><span>@</span><select id="customDomain" dir="ltr" aria-label="نطاق البريد">${domainOptions(domain?.toLowerCase())}</select></div><p class="hint">حروف إنجليزية وأرقام والنقاط والشرطة والشرطة السفلية.</p><button class="pill pr" type="submit">حفظ العنوان</button><p id="formError" role="alert"></p></form>`);
   $('#customName').focus();
   $('#customForm').onsubmit = async event => {
@@ -125,7 +130,7 @@ async function changeDomain(site) {
   const name = session.email_addr.split('@')[0];
   busy = true; render();
   try {
-    await api.rename(name, site); domainError = '';
+    await api.changeDomain(site); domainError = '';
     lastCheck = null;
     toast('تم تغيير النطاق');
   } catch (error) { domainError = error.message; toast('تعذر تغيير النطاق'); }
@@ -196,8 +201,8 @@ function switchTab(settings) {
 }
 $('#inboxTab').onclick = () => switchTab(false);
 $('#settingsTab').onclick = () => switchTab(true);
-try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.7.0'); } catch {}
-$('#copyAddress').onclick = () => session && copy(session.email_addr);
+try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.7.1'); } catch {}
+$('#copyAddress').onclick = () => session && copy(displayAddress(session));
 $('#random').onclick = create;
 $('#custom').onclick = customSheet;
 $('#domainSelect').onchange = event => changeDomain(event.target.value);
@@ -231,7 +236,7 @@ async function checkUpdate(manual = false) {
     const response = await request('https://raw.githubusercontent.com/f0uri/baridat/main/public/version.json?t=' + Date.now());
     if (!response.ok) throw new Error();
     const info = JSON.parse(response.body);
-    const currentCode = N?.getVersionCode ? Number(N.getVersionCode()) : 30;
+    const currentCode = N?.getVersionCode ? Number(N.getVersionCode()) : 31;
     if (Number(info.versionCode) > currentCode && typeof info.version === 'string') {
       const url = new URL(info.apkUrl);
       if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.port || url.search || url.hash || !/^\/f0uri\/baridat\/releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\/baridat\.apk$/.test(url.pathname)) throw new Error();

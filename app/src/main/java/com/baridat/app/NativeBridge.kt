@@ -9,10 +9,10 @@ class NativeBridge(ctx: Context) {
         ctx.getSharedPreferences("baridat_native", Context.MODE_PRIVATE)
 
     @JavascriptInterface
-    fun getAppVersion(): String = BuildConfig.VERSION_NAME
+    fun getAppVersion(): String = "2.1.0"
 
     @JavascriptInterface
-    fun getVersionCode(): Int = BuildConfig.VERSION_CODE
+    fun getVersionCode(): Int = 21
 
     @JavascriptInterface
     fun storeString(key: String, value: String) {

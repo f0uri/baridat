@@ -45,7 +45,7 @@ class MainActivity : AppCompatActivity() {
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
 
-        web.addJavascriptInterface(NativeBridge(this), "BaridatNative")
+        web.addJavascriptInterface(NativeBridge(), "BaridatNative")
 
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")

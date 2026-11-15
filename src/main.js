@@ -1,773 +1,502 @@
 import './style.css';
 
-// ======= Native bridge =======
-const Native = window.BaridatNative || null;
+// ============================================================
+// Native bridge
+// ============================================================
+const N = window.BaridatNative || null;
 
-function nativeGet(key, def) {
-  try { return Native ? Native.loadString(key, def) : def; } catch { return def; }
-}
-function nativeSet(key, val) {
-  try { if (Native) Native.storeString(key, val); } catch {}
-}
-function nativeRemove(key) {
-  try { if (Native) Native.removeKey(key); } catch {}
+function nlog(level, msg) { try { N && N.log(level, String(msg)); } catch {} }
+function nget(k, def)   { try { return N ? N.loadString(k, def) : def; } catch { return def; } }
+function nset(k, v)     { try { if (N) N.storeString(k, v); } catch(e){ nlog('e','store '+k+' failed: '+e); } }
+function nrm(k)         { try { if (N) N.removeKey(k); } catch {} }
+
+// Promisified native HTTP — never uses fetch, never hits file:// CORS issues.
+function http(method, url, body, token) {
+  return new Promise((resolve) => {
+    if (!N || !N.http) {
+      // Fallback: no native bridge (dev in browser). Use fetch.
+      fetch(url, {
+        method,
+        headers: Object.assign(
+          { 'Accept': 'application/json' },
+          body ? { 'Content-Type': 'application/json' } : {},
+          token ? { 'Authorization': 'Bearer ' + token } : {},
+        ),
+        body: body || undefined,
+      }).then(r => r.text().then(t => resolve({ ok: r.ok, status: r.status, body: t })))
+        .catch(e => resolve({ ok: false, status: 0, error: String(e) }));
+      return;
+    }
+    const cb = '_ncb_' + Math.random().toString(36).slice(2);
+    window[cb] = function(res) {
+      try { delete window[cb]; } catch {}
+      try { resolve(JSON.parse(res)); } catch { resolve({ ok: false, status: 0, error: 'bad-json' }); }
+    };
+    try {
+      N.http(method, url, body || null, token || null, cb);
+    } catch (e) {
+      resolve({ ok: false, status: 0, error: 'http-exc: ' + e });
+    }
+  });
 }
 
-// ======= Version =======
-// Read synchronously from NativeBridge first (it is attached before loadUrl).
-// If the native call throws or returns empty, fall back to a short retry loop,
-// then finally to embedded version.json fetched via XMLHttpRequest (fetch() is
-// unreliable on file:///android_asset in some WebView versions).
-let APP_VERSION = '';
-function resolveVersion() {
+// ============================================================
+// Version
+// ============================================================
+let APP_VERSION = '0.0.0';
+(function resolveVersion() {
   try {
-    if (Native && typeof Native.getAppVersion === 'function') {
-      const v = Native.getAppVersion();
-      if (v && typeof v === 'string' && /^\d+\.\d+\.\d+/.test(v)) {
-        APP_VERSION = v;
-        return true;
-      }
+    if (N && typeof N.getAppVersion === 'function') {
+      const v = N.getAppVersion();
+      if (v && /^\d+\.\d+\.\d+/.test(v)) { APP_VERSION = v; return; }
     }
   } catch {}
-  return false;
-}
-if (!resolveVersion()) {
-  // Retry a few ticks — on some cold WebView starts the bridge isn't visible
-  // to JS until the first microtask queue flush.
-  let tries = 0;
-  const t = setInterval(() => {
-    tries++;
-    if (resolveVersion() || tries >= 20) {
-      clearInterval(t);
-      // Last-resort: XHR version.json (works on file://, unlike fetch in some WebViews)
-      if (!APP_VERSION) {
-        try {
-          const xhr = new XMLHttpRequest();
-          xhr.open('GET', './version.json', false);
-          xhr.send(null);
-          if (xhr.status === 200 || xhr.status === 0) {
-            const d = JSON.parse(xhr.responseText);
-            if (d && d.version) APP_VERSION = d.version;
-          }
-        } catch {}
-      }
-      if (!APP_VERSION) APP_VERSION = '0.0.0';
-      renderVersion();
+  // Fallback: xhr version.json (works on file://)
+  try {
+    const x = new XMLHttpRequest();
+    x.open('GET', './version.json', false);
+    x.send(null);
+    if (x.status === 200 || x.status === 0) {
+      const d = JSON.parse(x.responseText);
+      if (d && d.version) APP_VERSION = d.version;
     }
-  }, 50);
+  } catch {}
+})();
+
+// ============================================================
+// State
+// ============================================================
+const KEY_ACCOUNTS = 'baridat_accounts_v2';
+const KEY_CURRENT  = 'baridat_current_v2';
+const KEY_CUSTOM   = 'baridat_custom_server_v1';
+
+let accounts = [];
+let current = null;
+let customServer = '';
+let activeProvider = 'mailtm';
+let pollingTimer = null;
+
+function $(id) { return document.getElementById(id); }
+function rnd(n) {
+  const a = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let s = '';
+  for (let i = 0; i < n; i++) s += a[Math.floor(Math.random() * a.length)];
+  return s;
 }
 
-// ======= Providers =======
+// ============================================================
+// Providers (both go through http() → native bridge)
+// ============================================================
 const PROVIDERS = {
   mailtm: {
-    id: 'mailtm', label: 'mail.tm',
-    base: 'https://api.mail.tm',
+    label: 'mail.tm',
     async create() {
-      const domRes = await fetch(`${this.base}/domains?page=1`);
-      if (!domRes.ok) throw new Error(`domains HTTP ${domRes.status}`);
-      const domData = await domRes.json();
-      const domains = (domData['hydra:member'] || []).filter(d => d.isActive);
-      if (!domains.length) throw new Error('لا يوجد دومين نشط على mail.tm');
-      const domain = domains[0].domain;
+      const doms = await http('GET', 'https://api.mail.tm/domains?page=1');
+      if (!doms.ok) throw new Error('domains: HTTP ' + doms.status);
+      const dd = JSON.parse(doms.body);
+      const list = (dd['hydra:member'] || []).filter(d => d.isActive);
+      if (!list.length) throw new Error('لا يوجد دومين نشط في mail.tm');
+      const domain = list[0].domain;
       const address = rnd(12) + '@' + domain;
       const password = rnd(24);
-      const accRes = await fetch(`${this.base}/accounts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, password }),
-      });
-      if (!accRes.ok) throw new Error(`create HTTP ${accRes.status}`);
-      const acc = await accRes.json();
-      const tokRes = await fetch(`${this.base}/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, password }),
-      });
-      if (!tokRes.ok) throw new Error(`token HTTP ${tokRes.status}`);
-      const tok = await tokRes.json();
-      return {
-        id: acc.id, address: acc.address, password, token: tok.token,
-        provider: this.id, createdAt: Date.now(), extra: { domain },
-      };
+      const cr = await http('POST', 'https://api.mail.tm/accounts',
+        JSON.stringify({ address, password }));
+      if (!cr.ok) throw new Error('create: HTTP ' + cr.status);
+      const tr = await http('POST', 'https://api.mail.tm/token',
+        JSON.stringify({ address, password }));
+      if (!tr.ok) throw new Error('token: HTTP ' + tr.status);
+      const tok = JSON.parse(tr.body);
+      return { id: JSON.parse(cr.body).id, address, password, token: tok.token, provider: 'mailtm', domain };
     },
     async list(acc) {
-      const res = await fetch(`${this.base}/messages?page=1`, {
-        headers: { Authorization: `Bearer ${acc.token}` },
-      });
-      if (!res.ok) throw new Error(`list HTTP ${res.status}`);
-      const d = await res.json();
-      return (d['hydra:member'] || []).map(m => this._normalize(m));
+      const r = await http('GET', 'https://api.mail.tm/messages?page=1', null, acc.token);
+      if (!r.ok) throw new Error('list: HTTP ' + r.status);
+      const d = JSON.parse(r.body);
+      return (d['hydra:member'] || []).map(normalizeMailtm);
     },
     async read(acc, id) {
-      const res = await fetch(`${this.base}/messages/${id}`, {
-        headers: { Authorization: `Bearer ${acc.token}` },
-      });
-      if (!res.ok) throw new Error(`read HTTP ${res.status}`);
-      return this._normalize(await res.json(), true);
+      const r = await http('GET', 'https://api.mail.tm/messages/' + id, null, acc.token);
+      if (!r.ok) throw new Error('read: HTTP ' + r.status);
+      return normalizeMailtm(JSON.parse(r.body), true);
     },
     async remove(acc, id) {
-      await fetch(`${this.base}/messages/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${acc.token}` },
-      });
-    },
-    _normalize(m, full = false) {
-      const from = (m.from && (Array.isArray(m.from) ? m.from[0] : m.from)) || {};
-      const toArr = Array.isArray(m.to) ? m.to : (m.to ? [m.to] : []);
-      return {
-        id: m.id,
-        from: { name: from.name || '', address: from.address || '' },
-        to: toArr.map(t => ({ name: t.name || '', address: t.address || '' })),
-        subject: m.subject || '',
-        intro: (m.intro || (m.text ? m.text.slice(0, 120) : '')) + (full ? '' : ''),
-        text: full ? m.text || '' : '',
-        html: full ? m.html || '' : '',
-        seen: !!m.seen,
-        createdAt: m.createdAt,
-        attachments: (m.attachments || []).map(a => ({
-          id: a.id, filename: a.filename, size: a.size,
-          url: `${this.base}/messages/${m.id}/attachment/${a.filename}?token=__TOK__`,
-        })),
-      };
+      await http('DELETE', 'https://api.mail.tm/messages/' + id, null, acc.token);
     },
   },
-
   mail123: {
-    id: 'mail123', label: 'mail123',
-    base: 'https://mail123.fr/api/v1',
+    label: 'mail123',
     async create() {
-      const res = await fetch(`${this.base}/mailbox/new`);
-      if (!res.ok) throw new Error(`mail123 new HTTP ${res.status}`);
-      const d = await res.json();
-      if (!d.success) throw new Error('mail123 refused new mailbox');
-      this.lastDomains = d.available_domains || [d.domain];
-      return {
-        id: d.box + '@' + d.domain,
-        address: d.address,
-        password: '',
-        token: '',
-        provider: this.id,
-        createdAt: Date.now(),
-        extra: { box: d.box, domain: d.domain, domains: d.available_domains },
-      };
+      const r = await http('GET', 'https://mail123.fr/api/v1/mailbox/new');
+      if (!r.ok) throw new Error('mail123 new: HTTP ' + r.status);
+      const d = JSON.parse(r.body);
+      if (!d.success) throw new Error('mail123 refused new');
+      return { id: d.box + '@' + d.domain, address: d.address, password: '', token: '', provider: 'mail123', domain: d.domain, box: d.box };
     },
     async list(acc) {
-      const res = await fetch(`${this.base}/mailbox/${encodeURIComponent(acc.address)}/messages`);
-      if (!res.ok) {
-        if (res.status === 429) throw new Error('RATE_LIMIT');
-        throw new Error(`mail123 list HTTP ${res.status}`);
-      }
-      const d = await res.json();
-      if (!d.success) throw new Error(d.error || 'mail123 list failed');
-      return (d.messages || []).map(m => this._normalize(m));
+      const r = await http('GET', 'https://mail123.fr/api/v1/mailbox/' + encodeURIComponent(acc.address) + '/messages');
+      if (!r.ok) { if (r.status === 429) throw new Error('rate-limit'); throw new Error('list: HTTP ' + r.status); }
+      const d = JSON.parse(r.body);
+      if (!d.success) throw new Error(d.error || 'list failed');
+      return (d.messages || []).map(normalizeMail123);
     },
     async read(acc, id) {
-      const res = await fetch(`${this.base}/mailbox/${encodeURIComponent(acc.address)}/messages/${encodeURIComponent(id)}`);
-      if (!res.ok) throw new Error(`mail123 read HTTP ${res.status}`);
-      const d = await res.json();
-      if (!d.success) throw new Error(d.error || 'mail123 read failed');
-      return this._normalize(d.message || d, true);
+      const r = await http('GET', 'https://mail123.fr/api/v1/mailbox/' + encodeURIComponent(acc.address) + '/messages/' + encodeURIComponent(id));
+      if (!r.ok) throw new Error('read: HTTP ' + r.status);
+      const d = JSON.parse(r.body);
+      return normalizeMail123(d.message || d, true);
     },
     async remove(acc, id) {
-      await fetch(`${this.base}/mailbox/${encodeURIComponent(acc.address)}/messages/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-      });
-    },
-    _normalize(m, full = false) {
-      const from = m.from || m.sender || {};
-      const fromName = from.name || from.address_name || '';
-      const fromAddr = from.address || from.mail || m.from_address || '';
-      const subj = m.subject || m.title || '';
-      const bodyHtml = m.html || m.body_html || m.bodyHtml || '';
-      const bodyText = m.text || m.body_text || m.bodyText || m.preview || m.intro || '';
-      return {
-        id: m.id || m.uid || m._id || m.message_id,
-        from: { name: fromName, address: fromAddr },
-        to: [{ name: '', address: m.to || m.recipient || '' }],
-        subject: subj,
-        intro: (m.preview || m.intro || bodyText.slice(0, 120)),
-        text: full ? bodyText : '',
-        html: full ? bodyHtml : '',
-        seen: !!m.seen || !!m.read,
-        createdAt: m.created_at || m.createdAt || m.date || m.received_at,
-        attachments: (m.attachments || []).map(a => ({
-          id: a.id || a.filename, filename: a.filename || a.name, size: a.size || 0, url: a.url || '',
-        })),
-      };
+      await http('DELETE', 'https://mail123.fr/api/v1/mailbox/' + encodeURIComponent(acc.address) + '/messages/' + encodeURIComponent(id));
     },
   },
 };
 
-// ======= Storage keys =======
-const STORAGE_KEY = 'baridat_accounts_v2';
-const CURRENT_KEY = 'baridat_current_v2';
-const CUSTOM_SERVER_KEY = 'baridat_custom_server_v1';
-const LEGACY_STORAGE_KEY = 'baridat_accounts_v1';
-const LEGACY_CURRENT_KEY = 'baridat_current_v1';
+function normalizeMailtm(m, full = false) {
+  const from = (m.from && (Array.isArray(m.from) ? m.from[0] : m.from)) || {};
+  return {
+    id: m.id,
+    fromName: from.name || '',
+    fromAddr: from.address || '',
+    subject: m.subject || '(بدون موضوع)',
+    intro: m.intro || (m.text ? m.text.slice(0, 120) : ''),
+    text: full ? (m.text || '') : '',
+    html: full ? (m.html || '') : '',
+    seen: !!m.seen,
+    createdAt: m.createdAt,
+  };
+}
+function normalizeMail123(m, full = false) {
+  const from = m.from || m.sender || {};
+  return {
+    id: m.id || m.uid || m._id || m.message_id,
+    fromName: from.name || from.address_name || '',
+    fromAddr: from.address || from.mail || m.from_address || '',
+    subject: m.subject || m.title || '(بدون موضوع)',
+    intro: m.preview || m.intro || (m.text || m.body_text || '').slice(0, 120),
+    text: full ? (m.text || m.body_text || '') : '',
+    html: full ? (m.html || m.body_html || '') : '',
+    seen: !!m.seen || !!m.read,
+    createdAt: m.created_at || m.createdAt || m.date || m.received_at,
+  };
+}
 
-// ======= State =======
-let accounts = [];
-let currentAccount = null;
-let messages = [];
-let pollTimer = null;
-let activeProvider = 'mailtm';
-let customServer = '';
-let refreshActive = false;
-let lastRefresh = 0;
+async function tryCreate() {
+  const order = customServer ? [] : ['mailtm', 'mail123'];
+  let lastErr = null;
+  for (const pid of order) {
+    try {
+      const a = await PROVIDERS[pid].create();
+      activeProvider = pid;
+      return a;
+    } catch (e) {
+      lastErr = e;
+      nlog('warn', 'provider ' + pid + ' failed: ' + e.message);
+    }
+  }
+  throw lastErr || new Error('كل المزودين فشلوا');
+}
 
-// ======= DOM =======
-const $ = (id) => document.getElementById(id);
+// ============================================================
+// Storage
+// ============================================================
+function saveAccounts() {
+  const j = JSON.stringify(accounts);
+  localStorage.setItem(KEY_ACCOUNTS, j);
+  nset(KEY_ACCOUNTS, j);
+}
+function saveCurrent() {
+  const id = current ? current.id : '';
+  localStorage.setItem(KEY_CURRENT, id);
+  nset(KEY_CURRENT, id);
+}
+function saveCustom() {
+  localStorage.setItem(KEY_CUSTOM, customServer);
+  nset(KEY_CUSTOM, customServer);
+}
+function loadState() {
+  // v1 → v2 migration
+  const oldAcc = localStorage.getItem('baridat_accounts_v1');
+  if (oldAcc && !localStorage.getItem(KEY_ACCOUNTS)) {
+    localStorage.setItem(KEY_ACCOUNTS, oldAcc);
+    nset(KEY_ACCOUNTS, oldAcc);
+  }
+  const oldCur = localStorage.getItem('baridat_current_v1');
+  if (oldCur && !localStorage.getItem(KEY_CURRENT)) {
+    localStorage.setItem(KEY_CURRENT, oldCur);
+    nset(KEY_CURRENT, oldCur);
+  }
+  // prefer native
+  let raw = nget(KEY_ACCOUNTS, '');
+  if (!raw) raw = localStorage.getItem(KEY_ACCOUNTS) || '';
+  try { accounts = raw ? JSON.parse(raw) : []; } catch { accounts = []; }
+  let curId = nget(KEY_CURRENT, '');
+  if (!curId) curId = localStorage.getItem(KEY_CURRENT) || '';
+  current = (curId && accounts.find(a => a.id === curId)) || accounts[0] || null;
+  customServer = nget(KEY_CUSTOM, '') || localStorage.getItem(KEY_CUSTOM) || '';
+}
 
-// ======= Utilities =======
-function showToast(msg, duration = 2400) {
-  const el = $('toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => el.classList.remove('show'), duration);
+// ============================================================
+// Rendering
+// ============================================================
+function fmtDate(s) {
+  try {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return '';
+    const now = Date.now();
+    const diff = (now - d.getTime()) / 1000;
+    if (diff < 60) return 'الآن';
+    if (diff < 3600) return Math.floor(diff / 60) + ' د';
+    if (diff < 86400) return Math.floor(diff / 3600) + ' س';
+    return d.toLocaleDateString('ar-EG');
+  } catch { return ''; }
+}
+
+function render() {
+  // Version badge
+  $('versionBadge').textContent = 'v' + APP_VERSION;
+  const sv = $('settingsVersion'); if (sv) sv.textContent = APP_VERSION;
+
+  // Provider
+  $('providerLabel').textContent = customServer ? 'خادم خاص' : PROVIDERS[activeProvider]?.label || '…';
+
+  // Current address
+  const ca = $('currentAddress');
+  if (current) ca.textContent = current.address;
+  else ca.textContent = 'جاري إنشاء بريد…';
+
+  // Address list in drawer
+  const list = $('addressList');
+  list.innerHTML = '';
+  accounts.forEach(a => {
+    const it = document.createElement('div');
+    it.className = 'addr-item' + (current && a.id === current.id ? ' active' : '');
+    it.textContent = a.address;
+    it.onclick = () => { switchTo(a.id); closeDrawer(); };
+    list.appendChild(it);
+  });
+
+  // Input
+  $('customServer').value = customServer;
+}
+
+function renderMessages(list) {
+  const box = $('messages');
+  box.innerHTML = '';
+  const empty = $('emptyMsg');
+  if (!list || list.length === 0) { empty.hidden = false; return; }
+  empty.hidden = true;
+  list.forEach(m => {
+    const el = document.createElement('div');
+    el.className = 'msg' + (m.seen ? '' : ' unread');
+    const initial = (m.fromName || m.fromAddr || '?').trim().charAt(0).toUpperCase() || '?';
+    const dot = m.seen ? '' : '<div class="msg-dot"></div>';
+    el.innerHTML = `
+      <div class="avatar">${escapeHtml(initial)}</div>
+      <div class="msg-body">
+        <div class="msg-top">
+          <div class="msg-from">${escapeHtml(m.fromName || m.fromAddr || 'مجهول')}</div>
+          <div class="msg-time">${fmtDate(m.createdAt)}</div>
+        </div>
+        <div class="msg-subject">${escapeHtml(m.subject)}</div>
+      </div>
+      ${dot}
+    `;
+    el.onclick = () => openMessage(m.id);
+    box.appendChild(el);
+  });
 }
 
 function escapeHtml(s) {
-  if (!s) return '';
-  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-function rnd(len) {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  const arr = new Uint8Array(len);
-  (crypto.getRandomValues ? crypto : window.crypto).getRandomValues(arr);
-  let out = '';
-  for (let i = 0; i < len; i++) out += chars[arr[i] % chars.length];
-  return out;
-}
+// ============================================================
+// Drawer
+// ============================================================
+function openDrawer()  { $('drawer').classList.add('open'); $('scrim').classList.add('show'); $('scrim').hidden = false; }
+function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('show'); $('scrim').hidden = true; }
 
-function timeAgo(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const diff = (Date.now() - d.getTime()) / 1000;
-  if (isNaN(diff)) return '';
-  if (diff < 60) return 'الآن';
-  if (diff < 3600) return Math.floor(diff/60) + 'د';
-  if (diff < 86400) return Math.floor(diff/3600) + 'س';
-  if (diff < 604800) return Math.floor(diff/86400) + 'ي';
-  return d.toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' });
-}
-
-function formatSize(bytes) {
-  if (!bytes) return '0B';
-  const u = ['B','KB','MB','GB']; let i = 0; let n = bytes;
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return n.toFixed(1) + u[i];
-}
-
-function otpExtract(text) {
-  if (!text) return null;
-  // 4-8 digit OTP
-  const m = String(text).replace(/<[^>]+>/g, ' ').match(/(?<!\d)(\d{4,8})(?!\d)/);
-  return m ? m[1] : null;
-}
-
-// ======= Persistence =======
-function loadAccounts() {
-  // Try native (SharedPreferences) first, fall back to localStorage, then legacy
-  let raw = nativeGet(STORAGE_KEY, '');
-  if (!raw) raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY) || '';
-  try { accounts = raw ? JSON.parse(raw) : []; } catch { accounts = []; }
-
-  const curId = nativeGet(CURRENT_KEY, '') || localStorage.getItem(CURRENT_KEY) || localStorage.getItem(LEGACY_CURRENT_KEY);
-  currentAccount = (curId && accounts.find(a => a.id === curId)) || accounts[0] || null;
-
-  customServer = nativeGet(CUSTOM_SERVER_KEY, '') || localStorage.getItem(CUSTOM_SERVER_KEY) || '';
-
-  // Choose active provider: custom > mailtm (default)
-  // We attempt mail.tm first at runtime; if it fails on create, switch to mail123.
-  activeProvider = currentAccount?.provider || 'mailtm';
-
-  // Migrate legacy entries if any
-  if (localStorage.getItem(LEGACY_STORAGE_KEY) && !localStorage.getItem(STORAGE_KEY)) {
-    saveAccounts();
-    saveCurrent();
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_CURRENT_KEY);
-  }
-}
-
-function saveAccounts() {
-  const json = JSON.stringify(accounts);
-  localStorage.setItem(STORAGE_KEY, json);
-  nativeSet(STORAGE_KEY, json);
-}
-function saveCurrent() {
-  if (currentAccount) {
-    localStorage.setItem(CURRENT_KEY, currentAccount.id);
-    nativeSet(CURRENT_KEY, currentAccount.id);
-  } else {
-    localStorage.removeItem(CURRENT_KEY);
-    nativeRemove(CURRENT_KEY);
-  }
-}
-function saveCustomServer() {
-  localStorage.setItem(CUSTOM_SERVER_KEY, customServer);
-  nativeSet(CUSTOM_SERVER_KEY, customServer);
-}
-
-// ======= Provider selection / API =======
-function getProvider() {
-  // For now, try the saved provider, fallback to mailtm then mail123 on error
-  if (customServer) {
-    // Custom server — use a minimal same-shape wrapper (future BillionMail)
-    // We do NOT claim it works; just allow the field to be stored & shown.
-    // Fall through to mail.tm if no custom server set.
-  }
-  return PROVIDERS[activeProvider] || PROVIDERS.mailtm;
-}
-
-async function tryCreateAccount(preferredProvider) {
-  const order = preferredProvider
-    ? [preferredProvider, 'mail123', 'mailtm'].filter((v,i,a) => a.indexOf(v) === i)
-    : ['mailtm', 'mail123'];
-
-  let lastErr = null;
-  for (const pid of order) {
-    const prov = PROVIDERS[pid];
-    if (!prov) continue;
-    try {
-      const acc = await prov.create();
-      activeProvider = pid;
-      return acc;
-    } catch (e) {
-      lastErr = e;
-      console.warn('[baridat] provider', pid, 'create failed:', e);
-    }
-  }
-  throw lastErr || new Error('جميع المزودين فشلوا');
-}
-
-// ======= Accounts =======
-async function createAccount() {
-  setRefreshing(true, 'جاري إنشاء بريد جديد…');
-  hideError();
+// ============================================================
+// Messages flow
+// ============================================================
+async function createNewAddress() {
+  hideAddressError();
   try {
-    const newAcc = await tryCreateAccount();
-    accounts.unshift(newAcc);
-    currentAccount = newAcc;
-    saveAccounts();
-    saveCurrent();
+    toast('جاري إنشاء عنوان…');
+    const a = await tryCreate();
+    accounts.unshift(a);
+    current = a;
+    saveAccounts(); saveCurrent();
     render();
     await refreshMessages();
     startPolling();
-    showToast('تم إنشاء بريد جديد');
+    toast('تم إنشاء العنوان');
   } catch (e) {
-    console.error(e);
-    showError('تعذر إنشاء بريد', e.message || String(e));
-  } finally {
-    setRefreshing(false);
+    nlog('error', 'create failed: ' + e.message);
+    showAddressError('تعذر إنشاء بريد: ' + (e.message || e));
   }
 }
 
-function switchAccount(id) {
-  currentAccount = accounts.find(a => a.id === id);
+function switchTo(id) {
+  current = accounts.find(a => a.id === id) || current;
   saveCurrent();
-  closeSidebar();
   render();
   refreshMessages();
-}
-
-async function deleteAccount(id) {
-  if (!confirm('هل تريد حذف هذا البريد؟')) return;
-  accounts = accounts.filter(a => a.id !== id);
-  if (currentAccount?.id === id) currentAccount = accounts[0] || null;
-  saveAccounts();
-  saveCurrent();
-  messages = [];
-  render();
-  if (currentAccount) await refreshMessages();
-  showToast('تم حذف البريد');
-}
-
-// ======= Messages =======
-async function fetchMessages() {
-  if (!currentAccount) return [];
-  const prov = PROVIDERS[currentAccount.provider];
-  if (!prov) return [];
-  return await prov.list(currentAccount);
-}
-
-async function fetchMessage(id) {
-  if (!currentAccount) return null;
-  const prov = PROVIDERS[currentAccount.provider];
-  return await prov.read(currentAccount, id);
-}
-
-async function deleteMessage(id) {
-  if (!currentAccount) return;
-  const prov = PROVIDERS[currentAccount.provider];
-  try { await prov.remove(currentAccount, id); } catch(e) { console.warn(e); }
-  messages = messages.filter(m => m.id !== id);
-  renderMessages();
-  showToast('تم حذف الرسالة');
+  startPolling();
 }
 
 async function refreshMessages() {
-  if (!currentAccount) { messages = []; renderMessages(); return; }
-  setRefreshing(true, 'جاري التحديث…');
-  hideError();
+  if (!current) return;
+  const prov = PROVIDERS[current.provider];
+  if (!prov) return;
   try {
-    const fresh = await fetchMessages();
-    const prevIds = new Set(messages.map(m => m.id));
-    const newOnes = fresh.filter(m => !prevIds.has(m.id));
-    messages = fresh;
-    renderMessages();
-    renderEmailList();
-    if (newOnes.length && lastRefresh) showToast('وصلت رسالة جديدة');
-    lastRefresh = Date.now();
+    const list = await prov.list(current);
+    renderMessages(list);
   } catch (e) {
-    console.error(e);
-    if (e.message === 'RATE_LIMIT') {
-      showToast('الرجاء الانتظار قليلاً');
-    } else {
-      showError('تعذر جلب الرسائل', e.message || String(e));
-    }
-  } finally {
-    setRefreshing(false);
+    nlog('warn', 'list failed: ' + e.message);
   }
 }
 
 function startPolling() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(refreshMessages, 15000);
+  if (pollingTimer) clearInterval(pollingTimer);
+  pollingTimer = setInterval(refreshMessages, 15000);
 }
 
-// ======= Render =======
-function render() {
-  renderCurrent();
-  renderEmailList();
-  renderProvider();
-  renderMessages();
-  renderVersion();
-  renderSettings();
+async function deleteCurrent() {
+  if (!current) return;
+  if (!confirm('حذف هذا العنوان؟')) return;
+  accounts = accounts.filter(a => a.id !== current.id);
+  current = accounts[0] || null;
+  saveAccounts(); saveCurrent();
+  render();
+  renderMessages([]);
+  if (!current) await createNewAddress();
+  else refreshMessages();
 }
 
-function renderVersion() {
-  $('versionBadge').textContent = 'v' + APP_VERSION;
-  const sv = $('settingsVersion'); if (sv) sv.textContent = 'الإصدار ' + APP_VERSION;
-}
-
-function renderProvider() {
-  const label = customServer ? 'الخادم الخاص' : getProvider().label;
-  $('providerBadge').textContent = label;
-  const ap = $('activeProvider'); if (ap) ap.textContent = label;
-}
-
-function renderCurrent() {
-  const el = $('currentAddress');
-  if (currentAccount) {
-    el.textContent = currentAccount.address;
-  } else {
-    el.textContent = 'جاري إنشاء بريد…';
-  }
-}
-
-function renderEmailList() {
-  const list = $('emailList');
-  list.innerHTML = '';
-  if (!accounts.length) {
-    const div = document.createElement('div');
-    div.className = 'email-list-empty';
-    div.textContent = 'لا توجد صناديق بعد';
-    list.appendChild(div);
-    return;
-  }
-  accounts.forEach(acc => {
-    const el = document.createElement('div');
-    el.className = 'email-item' + (currentAccount?.id === acc.id ? ' active' : '');
-    const dt = new Date(acc.createdAt);
-    const dateStr = dt.toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' });
-    const unread = (messages.length && currentAccount?.id === acc.id) ? messages.filter(m => !m.seen).length : 0;
-    const provLabel = PROVIDERS[acc.provider]?.label || '';
-    el.innerHTML = `
-      <div class="addr" dir="ltr">${escapeHtml(acc.address)}</div>
-      <div class="meta">
-        <span>${dateStr} · ${escapeHtml(provLabel)}</span>
-        ${unread ? `<span class="count-badge">${unread}</span>` : ''}
-      </div>
-    `;
-    let tapTimer = null;
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.del-x')) return;
-      switchAccount(acc.id);
-    });
-    el.addEventListener('dblclick', () => deleteAccount(acc.id));
-    list.appendChild(el);
-  });
-}
-
-function renderMessages() {
-  const list = $('messagesList');
-  list.innerHTML = '';
-  const empty = $('emptyState');
-  const errState = $('errorState');
-
-  if (errState.hidden === false) { list.style.display = 'none'; return; }
-
-  if (!currentAccount) {
-    empty.hidden = false; list.style.display = 'none'; return;
-  }
-  if (!messages.length) {
-    empty.hidden = false; list.style.display = 'none';
-    $('mailCount').textContent = '';
-    return;
-  }
-  empty.hidden = true;
-  list.style.display = 'flex';
-  $('mailCount').textContent = messages.length + ' رسالة';
-
-  messages.forEach(m => {
-    const el = document.createElement('div');
-    el.className = 'message-item' + (!m.seen ? ' unread' : '');
-    const fromName = m.from?.name || (m.from?.address ? m.from.address.split('@')[0] : 'مجهول');
-    const initial = (fromName.charAt(0) || '?').toUpperCase();
-    const time = timeAgo(m.createdAt);
-    el.innerHTML = `
-      <div class="message-avatar">${escapeHtml(initial)}</div>
-      <div class="message-content">
-        <div class="message-from-line">
-          <span class="message-from" dir="auto">${escapeHtml(fromName)} ${m.from?.address && m.from.name ? `<span>&lt;${escapeHtml(m.from.address)}&gt;</span>` : ''}</span>
-          <span class="message-time">${escapeHtml(time)}</span>
-        </div>
-        <div class="message-subject">${escapeHtml(m.subject || '(بدون موضوع)')}</div>
-        <div class="message-preview">${escapeHtml(m.intro || '—')}</div>
-      </div>
-      ${!m.seen ? '<div class="unread-dot"></div>' : ''}
-    `;
-    el.addEventListener('click', () => openMessage(m.id, el));
-    list.appendChild(el);
-  });
-}
-
-function setRefreshing(on, text) {
-  refreshActive = on;
-  const ind = $('refreshIndicator');
-  if (on) { ind.hidden = false; $('refreshText').textContent = text || 'جاري التحديث…'; }
-  else { ind.hidden = true; }
-}
-
-function showError(title, msg) {
-  $('errorState').hidden = false;
-  $('errorTitle').textContent = title;
-  $('errorText').textContent = msg;
-  $('emptyState').hidden = true;
-  document.getElementById('messagesList').style.display = 'none';
-}
-function hideError() {
-  $('errorState').hidden = true;
-}
-
-// ======= Message modal =======
+// ============================================================
+// Message modal
+// ============================================================
 let openMsgId = null;
-async function openMessage(id, listEl) {
+async function openMessage(id) {
+  if (!current) return;
+  const prov = PROVIDERS[current.provider];
+  openMsgId = id;
   try {
-    const full = await fetchMessage(id);
-    if (!full) return;
-    openMsgId = id;
-    if (!full.seen && listEl) {
-      listEl.classList.remove('unread');
-      const dot = listEl.querySelector('.unread-dot'); if (dot) dot.remove();
-      full.seen = true;
-    }
-    $('modalSubject').textContent = full.subject || '(بدون موضوع)';
-    const fromAddr = full.from?.address || '';
-    const fromDisplay = [full.from?.name, fromAddr].filter(Boolean).join(' ');
-    $('modalFrom').textContent = fromDisplay || '—';
-    $('modalTo').textContent = (full.to || []).map(t => t.address).filter(Boolean).join(', ') || '—';
-    $('modalDate').textContent = full.createdAt ? new Date(full.createdAt).toLocaleString('ar-EG') : '—';
-
-    // OTP
-    const bodyText = full.text || '';
-    const bodyHtml = full.html || '';
-    const code = otpExtract(bodyText + ' ' + (full.subject || '')) || otpExtract(stripHtml(bodyHtml));
-    const otpBox = $('otpBox');
-    if (code) {
-      otpBox.hidden = false;
-      $('otpCode').textContent = code;
-      $('otpCode').onclick = () => { navigator.clipboard.writeText(code).then(() => showToast('تم نسخ الرمز')); };
+    const m = await prov.read(current, id);
+    $('mSubject').textContent = m.subject;
+    $('mFrom').textContent = (m.fromName ? m.fromName + ' <' + m.fromAddr + '>' : m.fromAddr) || '—';
+    $('mDate').textContent = fmtDate(m.createdAt);
+    // OTP detection
+    const text = (m.subject + ' ' + m.text + ' ' + stripHtml(m.html)).replace(/\s+/g, ' ');
+    const otpMatch = text.match(/\b(\d{4,8})\b/);
+    const ob = $('mOtpBox');
+    if (otpMatch) {
+      ob.hidden = false;
+      ob.textContent = otpMatch[1];
+      ob.onclick = () => { copy(otpMatch[1]); toast('تم نسخ الكود'); };
+    } else { ob.hidden = true; ob.textContent = ''; }
+    // Body (iframe if html, else text)
+    const body = $('mBody');
+    if (m.html && m.html.trim()) {
+      body.innerHTML = '';
+      const iframe = document.createElement('iframe');
+      iframe.sandbox = '';
+      iframe.srcdoc = sanitizeHtml(m.html);
+      body.appendChild(iframe);
     } else {
-      otpBox.hidden = true;
+      body.textContent = m.text || '(لا يوجد محتوى)';
     }
-
-    // Attachments
-    const attBox = $('modalAttachments');
-    attBox.innerHTML = '';
-    (full.attachments || []).forEach(a => {
-      const ael = document.createElement('span');
-      ael.className = 'attachment';
-      ael.textContent = `${a.filename} (${formatSize(a.size)})`;
-      attBox.appendChild(ael);
-    });
-
-    // Body
-    const iframe = $('modalIframe');
-    const safeHtml = sanitizeHtml(full.html) || '';
-    const textHtml = full.text ? `<pre style="font-family:inherit;padding:20px;white-space:pre-wrap;color:#f5efe0;line-height:1.7;font-size:14px;direction:ltr;text-align:left;unicode-bidi:plaintext">${escapeHtml(full.text)}</pre>` : '';
-    const doc = `<!doctype html><html><head><meta charset="utf-8"><style>
-      body{margin:0;padding:0;font-family:Cairo,system-ui,sans-serif;color:#f5efe0;background:#0a0612;font-size:14px;line-height:1.7;padding:20px;word-break:break-word;direction:rtl;}
-      a{color:#F4D26A;}
-      img{max-width:100%;height:auto;border-radius:8px;}
-      blockquote{border-right:3px solid #D4AF37;margin:12px 0;padding:8px 16px;color:#c9bfad;}
-      pre{direction:ltr;text-align:left;white-space:pre-wrap;}
-      table{border-collapse:collapse;width:100%;}
-      td,th{border:1px solid #333;padding:6px;}
-    </style></head><body>${safeHtml || textHtml || '<p style="color:#7f7567">لا محتوى</p>'}</body></html>`;
-    iframe.srcdoc = doc;
-    $('messageModal').hidden = false;
+    $('msgModal').hidden = false;
+    // Mark seen — just re-render list
+    refreshMessages();
   } catch (e) {
-    showToast('تعذر فتح الرسالة: ' + e.message);
+    nlog('error', 'openMessage failed: ' + e.message);
+    toast('تعذر فتح الرسالة');
   }
 }
+function closeMessage() { $('msgModal').hidden = true; openMsgId = null; }
 
-function stripHtml(s) { return s ? s.replace(/<[^>]*>/g, ' ') : ''; }
+async function deleteMsg() {
+  if (!current || !openMsgId) return;
+  const prov = PROVIDERS[current.provider];
+  try { await prov.remove(current, openMsgId); closeMessage(); refreshMessages(); toast('تم الحذف'); }
+  catch (e) { toast('فشل الحذف'); }
+}
 
-function sanitizeHtml(html) {
-  if (!html) return '';
-  // Strip dangerous tags/attrs: script, iframe (other than our own), event handlers, javascript: urls
-  return String(html)
+function stripHtml(h) { return h.replace(/<[^>]+>/g, ' '); }
+function sanitizeHtml(h) {
+  return String(h)
     .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/on\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/on\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/on\w+\s*=\s*[^\s>]+/gi, '')
-    .replace(/javascript:/gi, '');
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/javascript:/gi, 'blocked:');
 }
 
-// ======= Sidebar =======
-function openSidebar() {
-  $('sidebar').classList.add('open');
-  $('sidebarScrim').hidden = false;
-}
-function closeSidebar() {
-  $('sidebar').classList.remove('open');
-  $('sidebarScrim').hidden = true;
-}
-
-// ======= Copy =======
-async function copyEmail() {
-  if (!currentAccount) { showToast('لا يوجد بريد حالياً'); return; }
-  try {
-    await navigator.clipboard.writeText(currentAccount.address);
-    showToast('تم نسخ البريد');
-    const btn = $('copyBtn'); btn.classList.add('success');
-    setTimeout(() => btn.classList.remove('success'), 1400);
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = currentAccount.address; document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); showToast('تم نسخ البريد'); } catch {}
-    document.body.removeChild(ta);
-  }
-}
-
-// ======= OTA =======
-async function checkUpdate() {
-  try {
-    const res = await fetch('./version.json', { cache: 'no-store' });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.version && data.version !== APP_VERSION && data.versionCode > (parseInt(APP_VERSION.split('.').join('')) || 0)) {
-      $('updateBanner').hidden = false;
-      $('updateMessage').textContent = `يتوفر إصدار جديد ${data.version}`;
-      $('updateBtn').onclick = () => {
-        if (/android/i.test(navigator.userAgent)) window.location.href = data.apkUrl || 'https://github.com/f0uri/baridat/releases/latest';
-        else window.location.reload();
-      };
-    }
-  } catch {}
-}
-
-async function registerSW() {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    const reg = await navigator.serviceWorker.register('./sw.js');
-    reg.addEventListener('updatefound', () => {
-      const nw = reg.installing;
-      nw.addEventListener('statechange', () => {
-        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-          $('updateBanner').hidden = false;
-          $('updateMessage').textContent = 'يتوفر تحديث للتطبيق';
-          $('updateBtn').onclick = () => {
-            if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-            else window.location.reload();
-          };
-        }
-      });
-    });
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing) return; refreshing = true; window.location.reload();
-    });
-  } catch (e) { console.warn('SW', e); }
-}
-
-// ======= Settings =======
-function renderSettings() {
-  const inp = $('customServer'); if (inp) inp.value = customServer;
-}
+// ============================================================
+// Settings
+// ============================================================
 function openSettings() { $('settingsModal').hidden = false; }
 function closeSettings() { $('settingsModal').hidden = true; }
-
-// ======= Init =======
-function bindEvents() {
-  $('newEmailBtn').addEventListener('click', createAccount);
-  $('copyBtn').addEventListener('click', copyEmail);
-  $('refreshBtn').addEventListener('click', () => refreshMessages());
-  $('changeBtn').addEventListener('click', createAccount);
-  $('deleteBtn').addEventListener('click', () => {
-    if (!currentAccount) return showToast('لا يوجد بريد');
-    deleteAccount(currentAccount.id);
-  });
-  $('menuBtn').addEventListener('click', openSidebar);
-  $('sidebarScrim').addEventListener('click', closeSidebar);
-  $('closeModal').addEventListener('click', () => { $('messageModal').hidden = true; openMsgId = null; });
-  $('messageModal').addEventListener('click', (e) => { if (e.target === $('messageModal')) $('messageModal').hidden = true; });
-  $('deleteMsgBtn').addEventListener('click', () => {
-    if (!openMsgId) return;
-    if (confirm('حذف هذه الرسالة؟')) { deleteMessage(openMsgId); $('messageModal').hidden = true; openMsgId = null; }
-  });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      $('messageModal').hidden = true;
-      closeSettings();
-      closeSidebar();
-    }
-  });
-  $('settingsBtn').addEventListener('click', openSettings);
-  $('closeSettings').addEventListener('click', closeSettings);
-  $('settingsModal').addEventListener('click', (e) => { if (e.target === $('settingsModal')) closeSettings(); });
-  $('customServer').addEventListener('change', (e) => {
-    customServer = e.target.value.trim();
-    saveCustomServer();
-    renderProvider();
-    showToast(customServer ? 'تم حفظ الخادم المخصص' : 'تم مسح الخادم المخصص');
-  });
-  $('retryBtn').addEventListener('click', () => { hideError(); refreshMessages(); });
-  $('downloadBtn').addEventListener('click', () => {
-    window.location.href = 'https://github.com/f0uri/baridat/releases/latest';
-  });
+function saveSettings() {
+  customServer = $('customServer').value.trim();
+  saveCustom();
+  render();
+  closeSettings();
+  toast('تم الحفظ');
 }
 
-async function init() {
-  bindEvents();
-  loadAccounts();
+// ============================================================
+// Utils
+// ============================================================
+function copy(s) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = s; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  } catch {}
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.hidden = true; }, 2200);
+}
+function showAddressError(msg) {
+  const e = $('addressError'); e.textContent = msg; e.hidden = false;
+}
+function hideAddressError() { $('addressError').hidden = true; }
+
+// ============================================================
+// Init
+// ============================================================
+function bind() {
+  $('menuBtn').onclick = openDrawer;
+  $('scrim').onclick = closeDrawer;
+  $('newAddressBtn').onclick = () => { closeDrawer(); createNewAddress(); };
+  $('settingsBtn').onclick = () => { closeDrawer(); openSettings(); };
+  $('refreshBtn').onclick = () => refreshMessages();
+  $('copyBtn').onclick = () => { if (current) { copy(current.address); toast('تم النسخ'); } };
+  $('refreshAddressBtn').onclick = refreshMessages;
+  $('deleteAddressBtn').onclick = deleteCurrent;
+  $('closeModal').onclick = closeMessage;
+  $('deleteMsgBtn').onclick = deleteMsg;
+  $('closeSettings').onclick = closeSettings;
+  $('saveSettings').onclick = saveSettings;
+}
+
+async function boot() {
+  bind();
+  loadState();
   render();
-  if (currentAccount) {
+  if (current) {
     await refreshMessages();
     startPolling();
   } else {
-    await createAccount();
+    await createNewAddress();
   }
-  registerSW();
-  setTimeout(checkUpdate, 1500);
-  setInterval(checkUpdate, 60 * 60 * 1000);
-  window.addEventListener('focus', checkUpdate);
+  nlog('info', 'baridat booted v' + APP_VERSION);
 }
 
-init();
+boot();

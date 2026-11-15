@@ -68,24 +68,38 @@ export class GuerrillaMail {
       return session;
     });
   }
-  rename(name, site) {
+  // Guerrilla Mail's public domains are aliases of the inbox ID. The API
+  // continues to report its canonical address regardless of the chosen alias.
+  changeDomain(domain) {
+    if (!DOMAINS.includes(domain)) return Promise.reject(new Error('نطاق البريد غير مدعوم'));
+    return this.run(async () => {
+      if (!this.session) throw new Error('لا توجد جلسة بريد');
+      const session = {...this.session, display_domain:domain};
+      this.update(session, {});
+      return session;
+    });
+  }
+  rename(name, domain) {
     if (!validName(name)) return Promise.reject(new Error('استخدم 1–30 حرفاً إنجليزياً أو رقماً أو . _ -'));
-    if (site && !DOMAINS.includes(site)) return Promise.reject(new Error('نطاق البريد غير مدعوم'));
+    if (domain && !DOMAINS.includes(domain)) return Promise.reject(new Error('نطاق البريد غير مدعوم'));
     return this.run(async () => {
       if (!this.session) throw new Error('لا توجد جلسة بريد');
       const oldName = this.session.email_addr.split('@')[0];
-      const data = await this.call('set_email_user', {email_user:name, lang:'en', ...(site ? {site} : {})});
+      if (name.toLowerCase() === oldName.toLowerCase()) {
+        const session = {...this.session, ...(domain ? {display_domain:domain} : {})};
+        this.update(session, {});
+        return session;
+      }
+      const data = await this.call('set_email_user', {email_user:name, lang:'en'});
       if (typeof data.email_addr !== 'string' || !data.email_addr.includes('@')) {
-        // Preserve a refreshed token even when the server did not confirm the address.
         this.update(this.session, {...data, email_addr:undefined});
-        throw new Error('لم تؤكد الخدمة تغيير العنوان');
+        throw new Error('لم تؤكد الخدمة تغيير اسم البريد');
       }
       const changedName = data.email_addr.split('@')[0].toLowerCase() !== oldName.toLowerCase();
-      const session = changedName ? {...this.session, seen_ids:[], known_ids:[]} : {...this.session};
+      const session = {...this.session, ...(domain ? {display_domain:domain} : {}), ...(changedName ? {seen_ids:[], known_ids:[]} : {})};
       this.update(session, data);
-      const [returnedName, returnedSite] = data.email_addr.split('@');
-      if (returnedName.toLowerCase() !== name.toLowerCase() || (site && returnedSite.toLowerCase() !== site.toLowerCase())) {
-        throw new Error('لم تؤكد الخدمة الاسم أو النطاق المطلوب؛ يُعرض العنوان الذي أعادته');
+      if (data.email_addr.split('@')[0].toLowerCase() !== name.toLowerCase()) {
+        throw new Error('لم تؤكد الخدمة اسم البريد المطلوب؛ يُعرض الاسم الذي أعادته');
       }
       return session;
     });

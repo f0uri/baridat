@@ -54,32 +54,35 @@ test('uses message body from the second fetch when indexing completes', async ()
   assert.equal((await api.read(1, async () => {})).mail_body, 'ready');
 });
 
-test('changes domain with site and keeps the current session and read state', async () => {
-  let query;
-  const saved = [];
-  const api = new GuerrillaMail(async url => { query = new URL(url).searchParams; return ok({email_addr:'alex@grr.la',sid_token:'rotated'}); }, s => saved.push(s));
-  api.restore({email_addr:'alex@sharklasers.com',sid_token:'original',seen_ids:['11'],known_ids:['11']});
-  const result = await api.rename('alex','grr.la');
-  assert.equal(query.get('f'), 'set_email_user');
-  assert.equal(query.get('site'), 'grr.la');
-  assert.equal(query.get('sid_token'), 'original');
-  assert.equal(result.sid_token, 'rotated');
-  assert.equal(saved.at(-1).email_addr,'alex@grr.la');
+test('switches public alias without changing canonical inbox, token, or read state', async () => {
+  let calls = 0; const saved = [];
+  const api = new GuerrillaMail(async () => {calls++; return ok({});}, s => saved.push(s));
+  api.restore({email_addr:'alex@guerrillamailblock.com',sid_token:'original',seen_ids:['11'],known_ids:['11']});
+  const result = await api.changeDomain('grr.la');
+  assert.equal(calls,0); assert.equal(result.sid_token,'original');
+  assert.equal(result.email_addr,'alex@guerrillamailblock.com');
+  assert.equal(saved.at(-1).display_domain,'grr.la');
   assert.deepEqual(result.seen_ids,['11']); assert.deepEqual(result.known_ids,['11']);
 });
-test('does not report a successful switch when the server ignores site', async () => {
-  const api = new GuerrillaMail(async () => ok({email_addr:'alex@sharklasers.com',sid_token:'new-token'}));
-  api.restore({email_addr:'alex@sharklasers.com',sid_token:'old',seen_ids:['1'],known_ids:['1']});
-  await assert.rejects(api.rename('alex','grr.la'), /لم تؤكد/);
-  assert.equal(api.session.email_addr,'alex@sharklasers.com');
-  assert.equal(api.session.sid_token,'new-token');
-  assert.deepEqual(api.session.seen_ids,['1']);
+test('renaming preserves chosen alias and checks canonical username', async () => {
+  let query;
+  const api = new GuerrillaMail(async url => {query = new URL(url).searchParams;return ok({email_addr:'new@guerrillamailblock.com',sid_token:'new-token'});});
+  api.restore({email_addr:'old@guerrillamailblock.com',sid_token:'old',display_domain:'grr.la',seen_ids:['1'],known_ids:['1']});
+  const result = await api.rename('new','sharklasers.com');
+  assert.equal(query.get('email_user'),'new'); assert.equal(query.has('site'),false);
+  assert.equal(result.email_addr,'new@guerrillamailblock.com'); assert.equal(result.display_domain,'sharklasers.com');
+  assert.equal(result.sid_token,'new-token'); assert.deepEqual(result.seen_ids,[]);
+});
+test('canonical list address is valid after changing alias', async () => {
+  const api = new GuerrillaMail(async () => ok({email:'alex@guerrillamailblock.com',list:[{mail_id:22,mail_from:'test@example.com'}]}));
+  api.restore({email_addr:'alex@guerrillamailblock.com',sid_token:'s',display_domain:'grr.la'});
+  assert.equal((await api.list())[0].mail_id,22);
 });
 test('rejects unsupported domains before making a request', async () => {
   let called = false;
   const api = new GuerrillaMail(async () => {called = true;});
   api.restore({email_addr:'a@grr.la',sid_token:'s'});
-  await assert.rejects(api.rename('a','evil.example'), /غير مدعوم/);
+  await assert.rejects(api.changeDomain('evil.example'), /غير مدعوم/);
   assert.equal(called,false);
 });
 

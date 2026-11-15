@@ -29,7 +29,7 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun storeString(key: String, value: String) {
-            runOnUiThread { prefs.edit().putString(key, value).apply() }
+            prefs.edit().putString(key, value).apply()
         }
 
         @JavascriptInterface
@@ -39,7 +39,7 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun removeKey(key: String) {
-            runOnUiThread { prefs.edit().remove(key).apply() }
+            prefs.edit().remove(key).apply()
         }
     }
 
@@ -56,15 +56,7 @@ class MainActivity : AppCompatActivity() {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         web = WebView(this)
-        web.webViewClient = object : WebViewClient() {
-            @Suppress("OVERRIDE_DEPRECATION")
-            override fun onReceivedError(
-                view: WebView?, errorCode: Int, description: String?, failingUrl: String?
-            ) {
-                Log.e("Baridat", "WebView error @$failingUrl: $errorCode $description")
-                super.onReceivedError(view, errorCode, description, failingUrl)
-            }
-        }
+        web.webViewClient = WebViewClient()
         web.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(cm: ConsoleMessage?): Boolean {
                 if (cm != null) {
@@ -86,12 +78,16 @@ class MainActivity : AppCompatActivity() {
         s.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
-        s.userAgentString = (s.userAgentString ?: "") + " Baridat/" + BuildConfig.VERSION_NAME
-        s.allowUniversalAccessFromFileURLs = false
-        s.allowFileAccessFromFileURLs = false
+
+        try {
+            val orig = s.userAgentString
+            s.userAgentString = (orig ?: "") + " Baridat/" + BuildConfig.VERSION_NAME
+        } catch (_: Throwable) {}
 
         web.addJavascriptInterface(NativeBridge(), "BaridatNative")
-        web.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+        if (BuildConfig.DEBUG) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
 
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")

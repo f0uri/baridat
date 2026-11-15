@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
-import android.util.Log
-import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -28,16 +26,19 @@ class MainActivity : AppCompatActivity() {
         fun getVersionCode(): Int = BuildConfig.VERSION_CODE
 
         @JavascriptInterface
+        @Synchronized
         fun storeString(key: String, value: String) {
             prefs.edit().putString(key, value).apply()
         }
 
         @JavascriptInterface
+        @Synchronized
         fun loadString(key: String, def: String): String {
             return prefs.getString(key, def) ?: def
         }
 
         @JavascriptInterface
+        @Synchronized
         fun removeKey(key: String) {
             prefs.edit().remove(key).apply()
         }
@@ -57,14 +58,7 @@ class MainActivity : AppCompatActivity() {
 
         web = WebView(this)
         web.webViewClient = WebViewClient()
-        web.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(cm: ConsoleMessage?): Boolean {
-                if (cm != null) {
-                    Log.d("WebView", cm.message() + " @ " + cm.sourceId() + ":" + cm.lineNumber())
-                }
-                return true
-            }
-        }
+        web.webChromeClient = WebChromeClient()
 
         val s: WebSettings = web.settings
         s.javaScriptEnabled = true
@@ -79,15 +73,7 @@ class MainActivity : AppCompatActivity() {
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
 
-        try {
-            val orig = s.userAgentString
-            s.userAgentString = (orig ?: "") + " Baridat/" + BuildConfig.VERSION_NAME
-        } catch (_: Throwable) {}
-
         web.addJavascriptInterface(NativeBridge(), "BaridatNative")
-        if (BuildConfig.DEBUG) {
-            WebView.setWebContentsDebuggingEnabled(true)
-        }
 
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")

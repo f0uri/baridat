@@ -4,7 +4,7 @@ import './style.css';
 const API_BASE = 'https://api.mail.tm';
 const STORAGE_KEY = 'baridat_accounts_v1';
 const CURRENT_KEY = 'baridat_current_v1';
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '2.0.0';
 
 // ======= State =======
 let accounts = [];

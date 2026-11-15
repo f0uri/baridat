@@ -8,12 +8,10 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   build-web:
-    name: Build web app
+    name: Build web assets
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,8 +23,14 @@ jobs:
         run: npm ci
       - name: Build web assets
         run: npm run build
-      - name: Copy version.json to dist
-        run: cp public/version.json dist/version.json
+      - name: Copy static assets (public) into dist/ so they get packaged as android_asset
+        run: |
+          cp public/icon-192.png dist/icon-192.png
+          cp public/icon-512.png dist/icon-512.png
+          cp public/icon.svg dist/icon.svg
+          cp public/manifest.webmanifest dist/manifest.webmanifest
+          cp public/sw.js dist/sw.js
+          cp public/version.json dist/version.json
       - name: Upload web build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -39,48 +43,130 @@ jobs:
     needs: build-web
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Set up Temurin Java 17
+        uses: actions/setup-java@v4
         with:
-          python-version: '3.11'
-      - name: Install Python dependencies
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android platform and build tools
         run: |
-          pip install --upgrade pip
-          pip install cryptography pyasn1 pyasn1-modules
-          python3 -c "import cryptography; import pyasn1; import pyasn1_modules; print('python deps OK')"
-      - name: Download web artifact
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          printf 'sdk.dir=%s\n' "${sdk_root}" > local.properties
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Download web artifact into app/src/main/assets/
         uses: actions/download-artifact@v4
         with:
           name: web-dist
-          path: dist/
-      - name: Require stable signing key (tag builds)
-        if: startsWith(github.ref, 'refs/tags/v')
+          path: app/src/main/assets/
+
+      - name: Build (generate) debug keystore if no signing secret
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
-          if [ -z "${{ secrets.BARIDAT_SIGNING_BUNDLE_B64 }}" ]; then
-            echo "::error::BARIDAT_SIGNING_BUNDLE_B64 secret is not set — tag builds must use the stable key"
-            exit 1
+          if [ ! -f signing/baridat.jks ]; then
+            mkdir -p signing
+            keytool -genkeypair -v -keystore signing/baridat.jks \
+              -storepass baridat2026 -alias baridat -keypass baridat2026 \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Baridat, O=Baridat, C=MA"
           fi
-      - name: Build APK
+
+      - name: Import stable signing key (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           BARIDAT_SIGNING_BUNDLE_B64: ${{ secrets.BARIDAT_SIGNING_BUNDLE_B64 }}
         run: |
-          cd apk-build
-          python3 mkapk.py 2>&1 | tee /tmp/build.log
-          ls -la ../baridat.apk
-      - name: Upload build log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log
-          path: /tmp/build.log
+          set -euo pipefail
+          if [ -z "${BARIDAT_SIGNING_BUNDLE_B64}" ]; then
+            echo "::error::BARIDAT_SIGNING_BUNDLE_B64 is required for tag builds"
+            exit 1
+          fi
+          mkdir -p signing
+          echo "$BARIDAT_SIGNING_BUNDLE_B64" | base64 -d > /tmp/key-bundle.pem
+          # The bundle is key PEM + cert PEM concatenated; split them.
+          awk 'BEGIN{c=0} /-----BEGIN/{c++; f="/tmp/baridat-"c".pem"} {print > f}' /tmp/key-bundle.pem
+          # First PEM block is the key, second is the cert.
+          # The key may be encrypted or plain. Try no password first.
+          if openssl pkcs12 -export \
+               -in /tmp/baridat-2.pem -inkey /tmp/baridat-1.pem \
+               -out /tmp/baridat.p12 -name baridat \
+               -passout pass:baridat2026 2>/dev/null; then
+            echo "Imported with unencrypted key."
+          elif openssl pkcs12 -export \
+               -in /tmp/baridat-2.pem -inkey /tmp/baridat-1.pem \
+               -out /tmp/baridat.p12 -name baridat \
+               -passout pass:baridat2026 -passin pass:baridat2026; then
+            echo "Imported with encrypted key."
+          else
+            echo "::error::Failed to convert PEM to PKCS12 (key may be encrypted with a different password)."
+            exit 1
+          fi
+          keytool -importkeystore \
+            -srckeystore /tmp/baridat.p12 -srcstoretype PKCS12 -srcstorepass baridat2026 -srcalias baridat \
+            -destkeystore signing/baridat.jks -deststorepass baridat2026 -destalias baridat -destkeypass baridat2026 \
+            -noprompt
+          echo "Stable signing key imported."
+          # Print cert fingerprint for verification
+          keytool -list -v -keystore signing/baridat.jks -storepass baridat2026 -alias baridat | grep -E "Alias|SHA-256|MD5"
+
+      - name: Build release APK (tag) or debug APK (branch)
+        id: build
+        run: |
+          set -o pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VARIANT=release
+          else
+            VARIANT=debug
+          fi
+          echo "variant=${VARIANT}" >> "$GITHUB_OUTPUT"
+          gradle :app:assemble${VARIANT^} --stacktrace --no-daemon 2>&1 | tee /tmp/gradle.log
+          if [ "${VARIANT}" = "release" ]; then
+            APK="app/build/outputs/apk/release/app-release.apk"
+          else
+            APK="app/build/outputs/apk/debug/app-debug.apk"
+          fi
+          echo "apk=${APK}" >> "$GITHUB_OUTPUT"
+          ls -la "${APK}"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: baridat-apk
-          path: baridat.apk
-          if-no-files-found: warn
-      - name: Create Release & upload APK (on tag)
-        if: startsWith(github.ref, 'refs/tags/v') && success()
+          path: ${{ steps.build.outputs.apk }}
+          if-no-files-found: error
+
+      - name: Verify APK
+        run: |
+          set -euo pipefail
+          APK="${{ steps.build.outputs.apk }}"
+          test -f "${APK}"
+          test -s "${APK}"
+          "${ANDROID_SDK_ROOT}/build-tools/34.0.0/aapt" dump badging "${APK}" | head -20
+          # Verify v2 signature
+          "${ANDROID_SDK_ROOT}/build-tools/34.0.0/apksigner" verify --verbose "${APK}" | head -20
+
+      - name: Prepare release asset (stable name)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p /tmp/release-assets
+          cp "${{ steps.build.outputs.apk }}" /tmp/release-assets/baridat.apk
+
+      - name: Create GitHub Release (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: baridat.apk
+          files: /tmp/release-assets/baridat.apk
           generate_release_notes: true
+          name: ${{ github.ref_name }}

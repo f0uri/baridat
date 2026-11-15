@@ -1,8 +1,8 @@
 {
-  "version": "1.2.8",
-  "versionCode": 10,
-  "apkUrl": "baridat.apk",
-  "releaseNotes": "إصلاحات إضافية: إزالة ملفات res/ غير المسجلة، تصحيح قيم البوليان، مراجع أيقونة/ثيم إطار العمل — يُرجى التجربة.",
-  "updatedAt": "2026-11-14T23:50:35Z",
+  "version": "2.0.0",
+  "versionCode": 20,
+  "apkUrl": "https://github.com/f0uri/baridat/releases/latest/download/baridat.apk",
+  "releaseNotes": "إعادة بناء التطبيق بمشروع Android Gradle حقيقي لحل مشكلة عدم التوافق على أندرويد 15.",
+  "updatedAt": "2026-11-15T00:00:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

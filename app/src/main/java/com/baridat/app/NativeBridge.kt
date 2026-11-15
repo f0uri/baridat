@@ -2,7 +2,9 @@ package com.baridat.app
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -74,6 +76,14 @@ class NativeBridge(private val activity: Activity) {
                 Log.e(TAG, "$m $u failed", t)
                 fire(cb, err(t.javaClass.simpleName + ": " + (t.message ?: "error")))
             } finally { c?.disconnect() }
+        }
+    }
+
+    @JavascriptInterface fun openUrl(url: String?) {
+        if (url.isNullOrEmpty()) return
+        activity.runOnUiThread {
+            try { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            catch (_: Throwable) { Log.e(TAG, "openUrl failed: $url") }
         }
     }
 

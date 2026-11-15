@@ -1,8 +1,8 @@
 {
-  "version": "2.3.0",
-  "versionCode": 25,
+  "version": "2.4.0",
+  "versionCode": 26,
   "apkUrl": "https://github.com/f0uri/baridat/releases/latest/download/baridat.apk",
-  "releaseNotes": "واجهة زجاجية جديدة مثل التصميم المطلوب + رسائل حقيقية + تشخيص visible لأي فشل تحديث.",
-  "updatedAt": "2026-11-15T13:35:00Z",
+  "releaseNotes": "تصميم iOS زجاجي بنفسجي/وردي مطابق للنموذج + فحص تحديثات OTA في حول + فتح الروابط عبر المتصفح.",
+  "updatedAt": "2026-11-15T15:30:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

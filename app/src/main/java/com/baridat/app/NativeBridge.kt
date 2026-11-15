@@ -3,16 +3,17 @@ package com.baridat.app
 import android.content.Context
 import android.content.SharedPreferences
 import android.webkit.JavascriptInterface
+import com.baridat.app.BuildConfig
 
 class NativeBridge(ctx: Context) {
     private val prefs: SharedPreferences =
         ctx.getSharedPreferences("baridat_native", Context.MODE_PRIVATE)
 
     @JavascriptInterface
-    fun getAppVersion(): String = com.baridat.app.BuildConfig.VERSION_NAME
+    fun getAppVersion(): String = BuildConfig.VERSION_NAME
 
     @JavascriptInterface
-    fun getVersionCode(): Int = com.baridat.app.BuildConfig.VERSION_CODE
+    fun getVersionCode(): Int = BuildConfig.VERSION_CODE
 
     @JavascriptInterface
     fun storeString(key: String, value: String) {

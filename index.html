@@ -1,134 +1,27 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="theme-color" content="#0a0612" />
-  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
-  <title>بريدات — بريد مؤقت</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./src/style.css" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4efff">
+<link rel="icon" type="image/svg+xml" href="./icon.svg">
+<title>بريدات</title>
 </head>
 <body>
-  <!-- Main -->
-  <main class="main">
-    <header class="topbar">
-      <div class="brand">BARIDAT<small>بريدات</small></div>
-      <div class="spacer"></div>
-      <button id="newAddressBtn" class="btn btn-gold">+ جديد</button>
-    </header>
-
-    <!-- View: mail (البريد) -->
-    <section id="view-mail" class="view">
-      <section class="card address-card">
-        <div class="label">عنوانك الحالي</div>
-        <div class="address-row">
-          <div id="currentAddress" class="address">جاري الإنشاء…</div>
-          <button id="copyBtn" class="btn btn-ghost btn-sm">نسخ</button>
-        </div>
-        <div id="providerLabel" class="provider-chip">…</div>
-        <div id="addressError" class="error-msg" hidden></div>
-        <div class="actions">
-          <button id="refreshAddressBtn" class="btn btn-sm">تحديث الصندوق</button>
-          <button id="deleteAddressBtn" class="btn btn-sm btn-danger">حذف العنوان</button>
-        </div>
-        <div id="mailStatus" class="statusline"><span id="mailStatusDot" class="dot idle"></span><span id="mailStatusText">…</span></div>
-      </section>
-
-      <section class="card messages-card">
-        <div class="card-head">
-          <div class="label">الرسائل</div>
-          <div id="msgCount" class="count">…</div>
-        </div>
-        <div id="refreshError" class="error-banner" hidden></div>
-        <div id="messages" class="messages"></div>
-        <div id="emptyMsg" class="empty">
-          <svg class="empty-icon" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-          <div>لا توجد رسائل بعد</div>
-          <div class="muted small">أرسل رسالة إلى هذا العنوان</div>
-        </div>
-      </section>
-    </section>
-
-    <!-- View: messages (الرسائل) -->
-    <section id="view-messages" class="view" hidden>
-      <section class="card messages-card">
-        <div class="card-head">
-          <div class="label">الرسائل</div>
-          <div id="msgCountTab" class="count">…</div>
-        </div>
-        <div id="refreshErrorTab" class="error-banner" hidden></div>
-        <div id="messagesTab" class="messages"></div>
-        <div id="emptyMsgTab" class="empty">
-          <svg class="empty-icon" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-          <div>لا توجد رسائل بعد</div>
-          <div class="muted small">أرسل رسالة إلى هذا العنوان</div>
-        </div>
-      </section>
-    </section>
-
-    <!-- View: about (حول) -->
-    <section id="view-about" class="view" hidden>
-      <section class="card about-card">
-        <div class="about-head">
-          <svg class="about-logo" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-          <div>
-            <div class="about-title">بريدات</div>
-            <div class="about-sub">بريد مؤقت</div>
-          </div>
-        </div>
-        <div class="about-row"><span class="muted">الإصدار</span><span id="aboutVersion">…</span></div>
-        <div class="about-row"><span class="muted">المزود</span><span id="aboutProvider">…</span></div>
-        <label class="field">
-          <span>خادم مخصص (اختياري)</span>
-          <input id="customServer" type="url" placeholder="https://..." />
-        </label>
-        <button id="saveCustomBtn" class="btn btn-primary btn-block">حفظ</button>
-      </section>
-    </section>
-  </main>
-
-  <!-- Bottom tab bar -->
-  <nav class="tabbar">
-    <button class="tab on" data-view="mail" aria-label="البريد">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
-      <span>البريد</span>
-    </button>
-    <button class="tab" data-view="messages" aria-label="الرسائل">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-      <span>الرسائل</span>
-    </button>
-    <button class="tab" data-view="about" aria-label="حول">
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-      <span>حول</span>
-    </button>
-  </nav>
-
-  <!-- Message modal -->
-  <div id="msgModal" class="modal" hidden>
-    <div class="modal-card">
-      <div class="modal-head">
-        <button id="closeModal" class="icon-btn">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-        <div id="mSubject" class="modal-title">—</div>
-      </div>
-      <div class="modal-meta">
-        <div><span class="muted">من:</span> <span id="mFrom">—</span></div>
-        <div><span class="muted">التاريخ:</span> <span id="mDate">—</span></div>
-      </div>
-      <div id="mOtpBox" class="otp-box" hidden></div>
-      <div id="mBody" class="modal-body">—</div>
-      <div class="modal-foot">
-        <button id="deleteMsgBtn" class="btn btn-sm btn-danger">حذف الرسالة</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="toast" class="toast" hidden></div>
-
-  <script type="module" src="./src/main.js"></script>
+<div id="app">
+<div class="bl b1"></div><div class="bl b2"></div><div class="bl b3"></div><div class="orb o1"></div><div class="orb o2"></div>
+<header class="nb" id="nb"><span id="nt">الوارد</span></header>
+<main id="view"></main>
+<nav class="tabs" aria-label="التنقل">
+<button class="on" data-tab="0"><i data-lucide="inbox"></i>الوارد<b class="bd" id="bd"></b></button>
+<button data-tab="1"><i data-lucide="at-sign"></i>العناوين</button>
+<button data-tab="2"><i data-lucide="settings"></i>الإعدادات</button>
+</nav>
+<section id="gate" hidden><div class="gt"><div class="logo"><i data-lucide="mail"></i></div><h1>بريدك المؤقت</h1><p>أنشئ عناوين فورية واستقبل رسائلك بأمان.</p><button class="gbtn" data-act="login"><span id="gg"></span>المتابعة باستخدام Google</button><button class="gst" data-act="guest">المتابعة كضيف</button><small>تُحفظ عناوينك في حسابك حتى لو حذفت التطبيق.</small></div></section>
+<div id="scrim" data-act="close"></div>
+<section id="sheet" aria-label="تفاصيل الرسالة"><div class="gr" id="gr"><i class="hd"></i></div><div id="sc"></div></section>
+<div id="toast"><span id="tt"></span></div>
+</div>
+<script type="module" src="./src/main.js"></script>
 </body>
 </html>

@@ -15,5 +15,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          log=$(gh run view 43763298140 --log | grep -F "package: name=" | base64 -w0)
+          log=$(gh run view 43763298140 --log | grep -A 50 "Verify version and signing continuity" | tail -25 | base64 -w0)
           echo "::notice::$log"

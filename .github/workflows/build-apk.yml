@@ -78,55 +78,65 @@ jobs:
           test -f app/src/main/assets/index.html
           test -f app/src/main/assets/version.json
 
-      - name: Prepare signing keys
+      - name: Import stable signing key (tag builds)
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           BARIDAT_SIGNING_BUNDLE_B64: ${{ secrets.BARIDAT_SIGNING_BUNDLE_B64 }}
         run: |
           set -euo pipefail
+          if [ -z "${BARIDAT_SIGNING_BUNDLE_B64}" ]; then
+            echo "::error::BARIDAT_SIGNING_BUNDLE_B64 is required for tag builds"
+            exit 1
+          fi
           mkdir -p signing
-          # Generate a debug keystore (Gradle usually auto-generates this, but we
-          # do it explicitly to ensure deterministic location/password).
-          if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v -keystore debug.keystore \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
-          fi
-          if [ -n "${BARIDAT_SIGNING_BUNDLE_B64}" ]; then
-            echo "$BARIDAT_SIGNING_BUNDLE_B64" | base64 -d > /tmp/key-bundle.pem
-            awk 'BEGIN{c=0} /-----BEGIN/{c++; f="/tmp/baridat-"c".pem"} {print > f}' /tmp/key-bundle.pem
-            if openssl pkcs12 -export \
-                 -in /tmp/baridat-2.pem -inkey /tmp/baridat-1.pem \
-                 -out /tmp/baridat.p12 -name baridat \
-                 -passout pass:baridat2026 2>/dev/null; then
-              echo "Imported with unencrypted key."
-            elif openssl pkcs12 -export \
-                 -in /tmp/baridat-2.pem -inkey /tmp/baridat-1.pem \
-                 -out /tmp/baridat.p12 -name baridat \
-                 -passout pass:baridat2026 -passin pass:baridat2026; then
-              echo "Imported with encrypted key."
-            else
-              echo "WARNING: key conversion failed, falling back to debug keystore."
-              exit 0
-            fi
-            keytool -importkeystore \
-              -srckeystore /tmp/baridat.p12 -srcstoretype PKCS12 -srcstorepass baridat2026 -srcalias baridat \
-              -destkeystore signing/baridat.jks -deststorepass baridat2026 -destalias baridat -destkeypass baridat2026 \
-              -noprompt
-            echo "Stable signing key imported."
-            keytool -list -v -keystore signing/baridat.jks -storepass baridat2026 -alias baridat | grep -E "Alias|SHA-256|MD5"
-          else
-            echo "No stable key available — debug APK will be signed with debug keystore."
-          fi
+          echo "$BARIDAT_SIGNING_BUNDLE_B64" | base64 -d > /tmp/key-bundle.pem
+          awk 'BEGIN{c=0} /-----BEGIN/{c++; f="/tmp/baridat-"c".pem"} {print > f}' /tmp/key-bundle.pem
+          openssl pkcs12 -export \
+            -in /tmp/baridat-2.pem -inkey /tmp/baridat-1.pem \
+            -out /tmp/baridat.p12 -name baridat \
+            -passout pass:baridat2026 2>/dev/null || \
+          openssl pkcs12 -export \
+            -in /tmp/baridat-2.pem -inkey /tmp/baridat-1.pem \
+            -out /tmp/baridat.p12 -name baridat \
+            -passout pass:baridat2026 -passin pass:baridat2026
+          keytool -importkeystore \
+            -srckeystore /tmp/baridat.p12 -srcstoretype PKCS12 -srcstorepass baridat2026 -srcalias baridat \
+            -destkeystore signing/baridat.jks -deststorepass baridat2026 -destalias baridat -destkeypass baridat2026 \
+            -noprompt
+          echo "Stable signing key imported."
+          keytool -list -v -keystore signing/baridat.jks -storepass baridat2026 -alias baridat | grep -E "Alias|SHA-256"
 
-      - name: Build debug APK
+      - name: Build APK
         id: build
         run: |
           set -o pipefail
-          gradle :app:assembleDebug --stacktrace --no-daemon 2>&1 | tee /tmp/gradle.log
-          APK="app/build/outputs/apk/debug/app-debug.apk"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VARIANT=release
+          else
+            VARIANT=debug
+          fi
+          echo "variant=${VARIANT}" >> "$GITHUB_OUTPUT"
+          gradle :app:assemble${VARIANT^} --stacktrace --no-daemon 2>&1 | tee "${RUNNER_TEMP}/gradle-build.log"
+          if [ "${VARIANT}" = "release" ]; then
+            APK="app/build/outputs/apk/release/app-release.apk"
+          else
+            APK="app/build/outputs/apk/debug/app-debug.apk"
+          fi
           echo "apk=${APK}" >> "$GITHUB_OUTPUT"
           ls -la "${APK}"
+
+      - name: Publish build errors to summary
+        if: failure()
+        run: |
+          if [ -f "${RUNNER_TEMP}/gradle-build.log" ]; then
+            {
+              echo '## Gradle build failure (tail)'
+              echo '```'
+              tail -n 120 "${RUNNER_TEMP}/gradle-build.log"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+            grep -E 'e: |error:|FAILED|What went wrong|Unresolved reference|Expecting' "${RUNNER_TEMP}/gradle-build.log" | head -n 30
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -145,6 +155,7 @@ jobs:
           "${ANDROID_SDK_ROOT}/build-tools/36.0.0/apksigner" verify --verbose "${APK}" | head -20
 
       - name: Prepare release asset (stable name)
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           mkdir -p /tmp/release-assets
           cp "${{ steps.build.outputs.apk }}" /tmp/release-assets/baridat.apk
@@ -157,11 +168,4 @@ jobs:
           generate_release_notes: true
           name: ${{ github.ref_name }}
 
-      - name: Upload debug APK to release (branch/tag)
-        if: startsWith(github.ref, 'refs/tags/v') == false && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: /tmp/release-assets/baridat.apk
-          tag_name: latest
-          name: Latest build (main)
-          prerelease: true
+

@@ -21,7 +21,11 @@ jobs:
           channel: stable
           flutter-version: '3.32.8'
       - run: flutter pub get
-      - run: flutter analyze
+      - name: Analyze
+        run: |
+          flutter analyze --machine > analysis.txt || true
+          while IFS= read -r line; do echo "::error::$line"; done < analysis.txt
+          test ! -s analysis.txt
       - run: flutter test
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4

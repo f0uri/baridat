@@ -78,16 +78,14 @@ jobs:
           test -f app/src/main/assets/index.html
           test -f app/src/main/assets/version.json
 
-      - name: Build (generate) debug keystore if no signing secret
+      - name: Build debug keystore for branch builds
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
-          if [ ! -f signing/baridat.jks ]; then
-            mkdir -p signing
-            keytool -genkeypair -v -keystore signing/baridat.jks \
-              -storepass baridat2026 -alias baridat -keypass baridat2026 \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Baridat, O=Baridat, C=MA"
-          fi
+          mkdir -p signing
+          # Don't create a custom signing key — debug builds use the auto-generated
+          # debug keystore (fast, valid for testing). Release/tag builds use the
+          # imported stable key.
+          rm -f signing/baridat.jks
 
       - name: Import stable signing key (tag builds)
         if: startsWith(github.ref, 'refs/tags/v')

@@ -17,32 +17,11 @@ android {
     signingConfigs {
         create("release") {
             val keystoreFile = rootProject.file("signing/baridat.jks")
-            val debugFile = rootProject.file("debug.keystore")
-            val chosen = when {
-                keystoreFile.exists() -> keystoreFile
-                debugFile.exists() -> debugFile
-                else -> null
-            }
-            if (chosen != null) {
-                storeFile = chosen
-                if (chosen.name == "baridat.jks") {
-                    storePassword = System.getenv("BARIDAT_KEYSTORE_PASSWORD") ?: "baridat2026"
-                    keyAlias = System.getenv("BARIDAT_KEY_ALIAS") ?: "baridat"
-                    keyPassword = System.getenv("BARIDAT_KEY_PASSWORD") ?: "baridat2026"
-                } else {
-                    storePassword = "android"
-                    keyAlias = "androiddebugkey"
-                    keyPassword = "android"
-                }
-            }
-        }
-        getByName("debug") {
-            val releaseCfg = signingConfigs.getByName("release")
-            if (releaseCfg.storeFile != null) {
-                storeFile = releaseCfg.storeFile
-                storePassword = releaseCfg.storePassword
-                keyAlias = releaseCfg.keyAlias
-                keyPassword = releaseCfg.keyPassword
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = System.getenv("BARIDAT_KEYSTORE_PASSWORD") ?: "baridat2026"
+                keyAlias = System.getenv("BARIDAT_KEY_ALIAS") ?: "baridat"
+                keyPassword = System.getenv("BARIDAT_KEY_PASSWORD") ?: "baridat2026"
             }
         }
     }
@@ -50,12 +29,14 @@ android {
     buildTypes {
         getByName("debug") {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("release")
+            val releaseCfg = signingConfigs.findByName("release")
+            if (releaseCfg?.storeFile != null) {
+                signingConfig = releaseCfg
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

@@ -1,7 +1,6 @@
 package com.baridat.app
 
 import android.annotation.SuppressLint
-import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -17,7 +16,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -45,6 +44,8 @@ class MainActivity : AppCompatActivity() {
         s.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         s.cacheMode = WebSettings.LOAD_DEFAULT
         s.setSupportZoom(false)
+
+        web.addJavascriptInterface(NativeBridge(this), "BaridatNative")
 
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")

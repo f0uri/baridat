@@ -1,8 +1,8 @@
 {
-  "version": "2.0.0",
-  "versionCode": 20,
+  "version": "2.1.0",
+  "versionCode": 21,
   "apkUrl": "https://github.com/f0uri/baridat/releases/latest/download/baridat.apk",
-  "releaseNotes": "إعادة بناء التطبيق بمشروع Android Gradle حقيقي لحل مشكلة عدم التوافق على أندرويد 15.",
-  "updatedAt": "2026-11-15T00:00:00Z",
+  "releaseNotes": "واجهة فاخرة جديدة + البريد يعمل.",
+  "updatedAt": "2026-11-15T02:00:00Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

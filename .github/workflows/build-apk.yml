@@ -31,6 +31,19 @@ jobs:
           cp public/manifest.webmanifest dist/manifest.webmanifest
           cp public/sw.js dist/sw.js
           cp public/version.json dist/version.json
+      - name: Strip crossorigin from dist/index.html (WebView file:// fix)
+        run: |
+          # Belt-and-suspenders: postbuild.js already did this, but make sure the
+          # shipped index.html has no crossorigin on relative module/CSS tags
+          # (they would silently fail to load under file:///android_asset/).
+          node -e "
+          const fs=require('fs'),p='dist/index.html';
+          const h=fs.readFileSync(p,'utf8').replace(/\s+crossorigin(=\"\")?/g,'');
+          fs.writeFileSync(p,h);
+          const n=(h.match(/crossorigin/g)||[]).length;
+          console.log('crossorigin attributes remaining:',n);
+          if(n!==0)process.exit(1);
+          "
       - name: Upload web build artifact
         uses: actions/upload-artifact@v4
         with:

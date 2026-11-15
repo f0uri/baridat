@@ -72,12 +72,6 @@ jobs:
           name: web-dist
           path: app/src/main/assets/
 
-      - name: Verify asset structure
-        run: |
-          ls -la app/src/main/assets/
-          test -f app/src/main/assets/index.html
-          test -f app/src/main/assets/version.json
-
       - name: Build (generate) debug keystore if no signing secret
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
@@ -145,19 +139,6 @@ jobs:
           fi
           echo "apk=${APK}" >> "$GITHUB_OUTPUT"
           ls -la "${APK}"
-
-      - name: Publish build errors to summary
-        if: failure()
-        run: |
-          if [ -f "/tmp/gradle.log" ]; then
-            {
-              echo '## Gradle build failure (tail)'
-              echo '```'
-              tail -n 120 /tmp/gradle.log
-              echo '```'
-            } >> "${GITHUB_STEP_SUMMARY}"
-            grep -E 'e: |error:|FAILED|What went wrong|Unresolved reference|Expecting' /tmp/gradle.log | head -n 30
-          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

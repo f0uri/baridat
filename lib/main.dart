@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -11,11 +12,11 @@ const sessionKey = 'baridat_guerrilla_v1';
 void main() => runApp(const Baridat());
 class Baridat extends StatelessWidget {
   const Baridat({super.key});
-  @override Widget build(BuildContext context) => MaterialApp(debugShowCheckedModeBanner: false, locale: const Locale('ar'), supportedLocales: const [Locale('ar')], localizationsDelegates: const [GlobalMaterialLocalizations.delegate, GlobalWidgetsLocalizations.delegate, GlobalCupertinoLocalizations.delegate], theme: ThemeData.dark(useMaterial3: true).copyWith(colorScheme: const ColorScheme.dark(primary: Color(0xff64d6ef), surface: Color(0xff141e30))), home: const Inbox());
+  @override Widget build(BuildContext context) => MaterialApp(debugShowCheckedModeBanner: false, locale: const Locale('ar'), supportedLocales: const [Locale('ar')], localizationsDelegates: const [GlobalMaterialLocalizations.delegate, GlobalWidgetsLocalizations.delegate, GlobalCupertinoLocalizations.delegate], theme: ThemeData(useMaterial3: true, brightness: Brightness.light, colorSchemeSeed: const Color(0xff6d28d9), scaffoldBackgroundColor: const Color(0xfff4efff)), darkTheme: ThemeData(useMaterial3: true, brightness: Brightness.dark, colorSchemeSeed: const Color(0xffff6ab8), scaffoldBackgroundColor: const Color(0xff0a0414)), home: const Inbox());
 }
 class Inbox extends StatefulWidget { const Inbox({super.key}); @override State<Inbox> createState() => _InboxState(); }
 class _InboxState extends State<Inbox> with WidgetsBindingObserver {
-  late MailService api; Timer? timer; bool busy = false, checking = false, connected = false, sound = true; String status = 'جاري الاتصال…', updateText = ''; List<Map<String,dynamic>> messages = []; String? updateUrl;
+  late MailService api; Timer? timer; bool busy = false, checking = false, connected = false, sound = true; String status = 'جاري الاتصال…', updateText = ''; List<Map<String,dynamic>> messages = []; String? updateUrl; int tab = 0;
   @override void initState() { super.initState(); WidgetsBinding.instance.addObserver(this); api = MailService((s) async { await native.invokeMethod('save', {'key':sessionKey,'value':jsonEncode(s)}); }); native.setMethodCallHandler((call) async { if (call.method == 'updateStatus' && mounted) { final d = jsonDecode(call.arguments as String); setState(() => updateText = d['message'] ?? ''); } }); init(); }
   Future<void> init() async {
     try {
@@ -59,15 +60,94 @@ class _InboxState extends State<Inbox> with WidgetsBindingObserver {
   }
   Future<void> checkUpdate() async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
-    try { final req = await client.getUrl(Uri.parse('https://raw.githubusercontent.com/f0uri/baridat/main/public/version.json')); final response = await req.close(); if (response.statusCode != 200) throw Exception('تعذر التحقق من التحديث'); final json = jsonDecode(await utf8.decoder.bind(response).join()); final code = json['versionCode']; if (code is! int) throw Exception('بيانات التحديث غير صالحة'); setState(() { updateUrl = code > 33 ? json['apkUrl'] : null; updateText = code > 33 ? 'يتوفر تحديث ${json['version']}' : 'التطبيق محدّث'; }); } catch (_) { if (mounted) setState(() => updateText = 'تعذر التحقق من التحديث'); } finally { client.close(force: true); }
+    try { final req = await client.getUrl(Uri.parse('https://raw.githubusercontent.com/f0uri/baridat/main/public/version.json')); final response = await req.close(); if (response.statusCode != 200) throw Exception('تعذر التحقق من التحديث'); final json = jsonDecode(await utf8.decoder.bind(response).join()); final code = json['versionCode']; if (code is! int) throw Exception('بيانات التحديث غير صالحة'); setState(() { updateUrl = code > 34 ? json['apkUrl'] : null; updateText = code > 34 ? 'يتوفر تحديث ${json['version']}' : 'التطبيق محدّث'; }); } catch (_) { if (mounted) setState(() => updateText = 'تعذر التحقق من التحديث'); } finally { client.close(force: true); }
   }
-  @override Widget build(BuildContext context) {
-    final s = api.session; final domain = s == null ? null : api.address.split('@').last;
-    return Scaffold(body: Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xff070b15),Color(0xff152038),Color(0xff080d18)])), child: SafeArea(child: Padding(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Row(children: [const Expanded(child: Text('بريدات', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold))), IconButton(onPressed: () => showModalBottomSheet(context: context, builder: (c) => StatefulBuilder(builder: (c, update) => SafeArea(child: Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [SwitchListTile(title: const Text('صوت النقرات'), value: sound, onChanged: (v) { setState(() => sound = v); update(() {}); native.invokeMethod('save', {'key':'click_sound','value':v ? '1':'0'}); }), TextButton(onPressed: () async { await checkUpdate(); update(() {}); }, child: const Text('التحقق من التحديث')), Text(updateText), if (updateUrl != null) FilledButton(onPressed: () => native.invokeMethod('downloadUpdate', {'url':updateUrl}), child: const Text('تنزيل وتثبيت التحديث')), TextButton(onPressed: () => native.invokeMethod('installUpdate'), child: const Text('تثبيت التحديث المحمّل'))]))))), icon: const Icon(Icons.settings_outlined))]),
-      Text(status, style: TextStyle(color: connected ? Colors.tealAccent : Colors.orangeAccent)), const SizedBox(height: 18),
-      Card(color: Colors.white.withValues(alpha: .07), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: BorderSide(color: Colors.white.withValues(alpha: .15))), child: Padding(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [const Text('عنوانك المؤقت', style: TextStyle(color: Colors.white70)), const SizedBox(height: 8), SelectableText(s == null ? 'جاري إنشاء العنوان…' : api.address, textDirection: TextDirection.ltr, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), DropdownButton<String>(isExpanded: true, value: domains.contains(domain) ? domain : null, hint: Text(domain ?? 'اختر النطاق'), items: domains.map((d) => DropdownMenuItem(value: d, child: Text('@$d', textDirection: TextDirection.ltr))).toList(), onChanged: busy || s == null ? null : (d) { if (d != null) action(() => api.domain(d)); }), Wrap(alignment: WrapAlignment.spaceBetween, children: [TextButton.icon(onPressed: s == null ? null : () { feedback(); Clipboard.setData(ClipboardData(text: api.address)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم النسخ'))); }, icon: const Icon(Icons.copy), label: const Text('نسخ')), TextButton.icon(onPressed: busy ? null : () { feedback(); action(api.create, clear: true); }, icon: const Icon(Icons.shuffle), label: const Text('تغيير')), TextButton.icon(onPressed: busy || s == null ? null : () { feedback(); custom(); }, icon: const Icon(Icons.edit_outlined), label: const Text('تخصيص')), TextButton.icon(onPressed: busy || s == null ? null : () { feedback(); refresh(); }, icon: const Icon(Icons.refresh), label: const Text('تحديث'))])]))),
-      const SizedBox(height: 20), Text('صندوق الوارد (${messages.length})', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)), const SizedBox(height: 10), Expanded(child: messages.isEmpty ? Center(child: Text(connected ? 'في انتظار وصول الرسائل…' : 'لم يتم التأكد من الوارد، تحقق من الاتصال', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70))) : ListView.builder(itemCount: messages.length, itemBuilder: (_, i) { final m = messages[i]; return Card(color: Colors.white.withValues(alpha: .07), child: ListTile(onTap: () { feedback(); open(m); }, leading: const CircleAvatar(child: Icon(Icons.mail_outline)), title: Text('${m['mail_subject'] ?? '(بدون موضوع)'}'), subtitle: Text('${m['mail_from'] ?? ''}\n${m['mail_excerpt'] ?? ''}', maxLines: 3, overflow: TextOverflow.ellipsis), isThreeLine: true)); }))
+  bool get dark => Theme.of(context).brightness == Brightness.dark;
+  Color get ink => dark ? const Color(0xfffbf7ff) : const Color(0xff14082b);
+  Color get muted => dark ? const Color(0xffb9acd6) : const Color(0xff5a4f78);
+  Color get accent => dark ? const Color(0xffff6ab8) : const Color(0xff6d28d9);
+
+  Widget glass({required Widget child, EdgeInsetsGeometry padding = const EdgeInsets.all(16), double radius = 22}) {
+    return ClipRRect(borderRadius: BorderRadius.circular(radius), child: BackdropFilter(
+      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+      child: Container(padding: padding, decoration: BoxDecoration(
+        color: (dark ? const Color(0xff28193e) : Colors.white).withValues(alpha: dark ? .72 : .72),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: (dark ? Colors.white : const Color(0xff8b5cf6)).withValues(alpha: dark ? .18 : .14)),
+        boxShadow: [BoxShadow(color: const Color(0xff170b38).withValues(alpha: .08), blurRadius: 28, offset: const Offset(0, 10))],
+      ), child: child),
+    ));
+  }
+  Widget heading(String text, {Widget? trailing}) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 16, 4, 16),
+    child: Row(children: [Expanded(child: Text(text, style: TextStyle(color: ink, fontSize: 34, fontWeight: FontWeight.w700, height: 1.2))), if (trailing != null) trailing]),
+  );
+  Widget roundAction(IconData icon, String label, VoidCallback? onTap) => Semantics(label: label, button: true, child: Material(
+    color: Colors.transparent, child: InkWell(borderRadius: BorderRadius.circular(30), onTap: onTap, child: glass(padding: const EdgeInsets.all(11), radius: 30, child: Icon(icon, color: accent, size: 22))),
+  ));
+  Widget heroButton(IconData icon, String label, VoidCallback? onTap, {bool primary = false}) => Expanded(child: Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 3), child: Material(
+      color: primary ? Colors.white : const Color(0xff200031).withValues(alpha: .32), borderRadius: BorderRadius.circular(14),
+      child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(14), child: SizedBox(height: 46, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, size: 17, color: primary ? const Color(0xff5b21b6) : Colors.white), const SizedBox(width: 5), Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: primary ? const Color(0xff5b21b6) : Colors.white, fontSize: 13, fontWeight: FontWeight.w700)))]))),
+    ),
+  ));
+  void copyAddress() { if (api.session == null) return; feedback(); Clipboard.setData(ClipboardData(text: api.address)); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم نسخ العنوان'))); }
+  Widget hero() => Container(
+    decoration: BoxDecoration(borderRadius: BorderRadius.circular(28), gradient: const LinearGradient(begin: Alignment.topRight, end: Alignment.bottomLeft, colors: [Color(0xff6d28d9), Color(0xffc026d3), Color(0xffe11d48)]), border: Border.all(color: Colors.white.withValues(alpha: .3)), boxShadow: [BoxShadow(color: const Color(0xffc026d3).withValues(alpha: .35), blurRadius: 35, offset: const Offset(0, 18))]),
+    padding: const EdgeInsets.fromLTRB(18, 19, 18, 17),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [Container(width: 8, height: 8, decoration: BoxDecoration(color: connected ? const Color(0xff42e6a4) : const Color(0xffffcf73), shape: BoxShape.circle)), const SizedBox(width: 8), const Text('عنوانك المؤقت', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600))]),
+      const SizedBox(height: 20),
+      Text(api.session == null ? 'جاري إنشاء العنوان…' : api.address, textAlign: TextAlign.center, textDirection: TextDirection.ltr, style: const TextStyle(color: Colors.white, fontSize: 17, fontFamily: 'monospace', fontWeight: FontWeight.w700)),
+      const SizedBox(height: 15),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(connected ? Icons.check_circle_outline : Icons.info_outline, color: Colors.white.withValues(alpha: .9), size: 17), const SizedBox(width: 7), Flexible(child: Text(status, textAlign: TextAlign.center, style: TextStyle(color: Colors.white.withValues(alpha: .92), fontSize: 12)))]),
+      const SizedBox(height: 18),
+      Row(children: [heroButton(Icons.copy_rounded, 'نسخ', api.session == null ? null : copyAddress, primary: true), heroButton(Icons.shuffle_rounded, 'عنوان جديد', busy ? null : () { feedback(); action(api.create, clear: true); }), heroButton(Icons.edit_outlined, 'تخصيص', busy || api.session == null ? null : () { feedback(); custom(); })]),
+    ]),
+  );
+  Widget sectionTitle(String title, {String? count}) => Padding(padding: const EdgeInsets.fromLTRB(8, 26, 8, 10), child: Row(children: [Expanded(child: Text(title, style: TextStyle(color: muted, fontSize: 13, fontWeight: FontWeight.w700))), if (count != null) Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3), decoration: BoxDecoration(color: accent.withValues(alpha: .12), borderRadius: BorderRadius.circular(20)), child: Text(count, style: TextStyle(color: ink, fontWeight: FontWeight.bold, fontSize: 12)))]));
+  Widget empty() => glass(child: Column(children: [const SizedBox(height: 23), Container(width: 74, height: 74, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: accent.withValues(alpha: .25))), alignment: Alignment.center, child: Container(width: 48, height: 48, decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), gradient: const LinearGradient(colors: [Color(0xff6d28d9), Color(0xffdb2777)])), child: const Icon(Icons.mail_outline_rounded, color: Colors.white))), const SizedBox(height: 18), Text(connected ? 'في انتظار الرسائل' : 'لم يتم التأكد من الوارد', style: TextStyle(color: ink, fontSize: 16, fontWeight: FontWeight.bold)), const SizedBox(height: 6), Text(connected ? 'ستظهر الرسائل الواردة إلى هذا العنوان هنا.' : 'تحقق من حالة الاتصال ثم أعد تحديث الوارد.', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 13)), const SizedBox(height: 24)]));
+  Widget messageCard(Map<String,dynamic> m) {
+    final from = '${m['mail_from'] ?? 'مرسل غير معروف'}';
+    return Padding(padding: const EdgeInsets.only(bottom: 10), child: Material(color: Colors.transparent, child: InkWell(borderRadius: BorderRadius.circular(22), onTap: () { feedback(); open(m); }, child: glass(child: Row(children: [
+      Container(width: 46, height: 46, alignment: Alignment.center, decoration: const BoxDecoration(shape: BoxShape.circle, gradient: LinearGradient(colors: [Color(0xff843ae8), Color(0xffd42c86)])), child: Text(from.isEmpty ? '?' : from.substring(0, 1).toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19))), const SizedBox(width: 12),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(from, maxLines: 1, overflow: TextOverflow.ellipsis, textDirection: TextDirection.ltr, style: TextStyle(color: ink, fontWeight: FontWeight.w700, fontSize: 14)), const SizedBox(height: 3), Text('${m['mail_subject'] ?? '(بدون موضوع)'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: ink, fontSize: 14)), const SizedBox(height: 3), Text('${m['mail_excerpt'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: muted, fontSize: 12))])), const SizedBox(width: 6), Text('${m['mail_date'] ?? ''}', style: TextStyle(color: muted, fontSize: 10)),
     ])))));
   }
+  Widget inboxPage() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    heading('الوارد', trailing: roundAction(Icons.refresh_rounded, 'تحديث الوارد', api.session == null || busy ? null : () { feedback(); refresh(); })), hero(),
+    const SizedBox(height: 14),
+    Material(color: Colors.transparent, child: InkWell(borderRadius: BorderRadius.circular(22), onTap: () { feedback(); setState(() => tab = 1); }, child: glass(padding: const EdgeInsets.all(14), child: Row(children: [gradientIcon(Icons.alternate_email_rounded), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('إدارة العنوان', style: TextStyle(color: ink, fontWeight: FontWeight.bold)), Text('اختر النطاق أو خصّص عنوانك', style: TextStyle(color: muted, fontSize: 12))])), Icon(Icons.chevron_left_rounded, color: muted)])))),
+    sectionTitle('الرسائل', count: '${messages.length}'), if (messages.isEmpty) empty() else ...messages.map(messageCard),
+  ]);
+  Widget gradientIcon(IconData icon) => Container(width: 42, height: 42, decoration: BoxDecoration(borderRadius: BorderRadius.circular(13), gradient: const LinearGradient(colors: [Color(0xff6d28d9), Color(0xffdb2777)])), child: Icon(icon, color: Colors.white, size: 21));
+  Widget addressesPage() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    heading('العناوين', trailing: roundAction(Icons.add_rounded, 'عنوان جديد', busy ? null : () { feedback(); action(api.create, clear: true); })),
+    glass(child: Row(children: [gradientIcon(Icons.alternate_email_rounded), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(api.session == null ? 'لا يوجد عنوان' : api.address, textDirection: TextDirection.ltr, style: TextStyle(color: ink, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis), const SizedBox(height: 4), Text('الرسائل: ${messages.length}', style: TextStyle(color: muted, fontSize: 12))])), Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5), decoration: BoxDecoration(color: accent.withValues(alpha: .12), borderRadius: BorderRadius.circular(20)), child: Text('نشط', style: TextStyle(color: accent, fontSize: 12, fontWeight: FontWeight.bold)))])),
+    sectionTitle('النطاق'), domainCard(), const SizedBox(height: 14),
+    glass(child: Row(children: [gradientIcon(Icons.edit_outlined), const SizedBox(width: 12), Expanded(child: Text('تخصيص اسم البريد', style: TextStyle(color: ink, fontWeight: FontWeight.w600))), TextButton(onPressed: busy || api.session == null ? null : () { feedback(); custom(); }, child: const Text('تعديل'))])),
+  ]);
+  Widget domainCard() {
+    final domain = api.session == null ? null : api.address.split('@').last;
+    return glass(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('اختر نطاق البريد', style: TextStyle(color: ink, fontWeight: FontWeight.w600)), const SizedBox(height: 8), DropdownButton<String>(isExpanded: true, value: domains.contains(domain) ? domain : null, hint: Text(domain ?? 'اختر النطاق'), items: domains.map((d) => DropdownMenuItem(value: d, child: Text('@$d', textDirection: TextDirection.ltr))).toList(), onChanged: busy || api.session == null ? null : (d) { if (d != null) { feedback(); action(() => api.domain(d)); } })]));
+  }
+  Widget settingsPage() => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    heading('الإعدادات'), sectionTitle('البريد'), domainCard(), sectionTitle('التفضيلات'),
+    glass(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4), child: Row(children: [gradientIcon(Icons.volume_up_outlined), const SizedBox(width: 12), Expanded(child: Text('صوت النقرات', style: TextStyle(color: ink, fontWeight: FontWeight.w600))), Switch(value: sound, activeColor: const Color(0xffc026d3), onChanged: (v) { setState(() => sound = v); native.invokeMethod('save', {'key':'click_sound','value':v ? '1':'0'}); })])),
+    sectionTitle('التحديث'), glass(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [Row(children: [gradientIcon(Icons.system_update_alt_rounded), const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('تحديث التطبيق', style: TextStyle(color: ink, fontWeight: FontWeight.bold)), Text('بريدات 2.8.1', style: TextStyle(color: muted, fontSize: 12))]))]), if (updateText.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 12), child: Text(updateText, style: TextStyle(color: muted))), const SizedBox(height: 8), Wrap(spacing: 8, children: [TextButton(onPressed: checkUpdate, child: const Text('التحقق من التحديث')), if (updateUrl != null) TextButton(onPressed: () => native.invokeMethod('downloadUpdate', {'url':updateUrl}), child: const Text('تنزيل وتثبيت')), TextButton(onPressed: () => native.invokeMethod('installUpdate'), child: const Text('تثبيت التحديث المحمّل'))])])),
+    Padding(padding: const EdgeInsets.all(12), child: Text('تعتمد مدة الاحتفاظ بالرسائل على خدمة البريد.', style: TextStyle(color: muted, fontSize: 12))),
+  ]);
+  Widget navigation() => Padding(padding: const EdgeInsets.fromLTRB(22, 0, 22, 12), child: glass(padding: const EdgeInsets.all(6), radius: 30, child: Row(children: List.generate(3, (i) {
+    final icons = [Icons.inbox_outlined, Icons.alternate_email_rounded, Icons.settings_outlined]; final labels = ['الوارد', 'العناوين', 'الإعدادات'];
+    return Expanded(child: Semantics(button: true, selected: tab == i, label: labels[i], child: Material(color: Colors.transparent, child: InkWell(borderRadius: BorderRadius.circular(21), onTap: () { feedback(); setState(() => tab = i); }, child: AnimatedContainer(duration: const Duration(milliseconds: 220), height: 56, decoration: BoxDecoration(borderRadius: BorderRadius.circular(21), color: tab == i ? accent.withValues(alpha: .13) : Colors.transparent), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icons[i], color: tab == i ? accent : muted, size: 21), const SizedBox(height: 2), Text(labels[i], style: TextStyle(color: tab == i ? accent : muted, fontSize: 11, fontWeight: FontWeight.w700))])))));
+  }))));
+  @override Widget build(BuildContext context) => Scaffold(
+    body: Container(decoration: BoxDecoration(color: dark ? const Color(0xff0a0414) : const Color(0xfff4efff)), child: Stack(children: [
+      Positioned(top: -140, right: -100, child: orb(const Color(0xfff12f89), 330, .22)),
+      Positioned(top: 310, left: -180, child: orb(const Color(0xff8b5cf6), 350, .24)),
+      Positioned(bottom: -130, right: -130, child: orb(const Color(0xff22d3ee), 300, .16)),
+      SafeArea(child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 430), child: Column(children: [Expanded(child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), child: [inboxPage, addressesPage, settingsPage][tab]())), navigation()])))),
+    ])),
+  );
+  Widget orb(Color color, double size, double opacity) => IgnorePointer(child: Container(width: size, height: size, decoration: BoxDecoration(shape: BoxShape.circle, gradient: RadialGradient(colors: [color.withValues(alpha: opacity), color.withValues(alpha: 0)]))));
 }

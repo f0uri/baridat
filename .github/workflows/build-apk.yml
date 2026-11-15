@@ -78,12 +78,20 @@ jobs:
           test -f app/src/main/assets/index.html
           test -f app/src/main/assets/version.json
 
-      - name: Use stable signing key
+      - name: Prepare signing keys
         env:
           BARIDAT_SIGNING_BUNDLE_B64: ${{ secrets.BARIDAT_SIGNING_BUNDLE_B64 }}
         run: |
           set -euo pipefail
           mkdir -p signing
+          # Generate a debug keystore (Gradle usually auto-generates this, but we
+          # do it explicitly to ensure deterministic location/password).
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v -keystore debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US" >/dev/null 2>&1
+          fi
           if [ -n "${BARIDAT_SIGNING_BUNDLE_B64}" ]; then
             echo "$BARIDAT_SIGNING_BUNDLE_B64" | base64 -d > /tmp/key-bundle.pem
             awk 'BEGIN{c=0} /-----BEGIN/{c++; f="/tmp/baridat-"c".pem"} {print > f}' /tmp/key-bundle.pem

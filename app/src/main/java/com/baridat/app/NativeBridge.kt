@@ -15,20 +15,17 @@ class NativeBridge(ctx: Context) {
     fun getVersionCode(): Int = BuildConfig.VERSION_CODE
 
     @JavascriptInterface
-    fun storeString(key: String?, value: String?) {
-        if (key == null) return
+    fun storeString(key: String, value: String) {
         prefs.edit().putString(key, value).apply()
     }
 
     @JavascriptInterface
-    fun loadString(key: String?, def: String?): String {
-        if (key == null) return def ?: ""
-        return prefs.getString(key, def) ?: def ?: ""
+    fun loadString(key: String, def: String): String {
+        return prefs.getString(key, def) ?: def
     }
 
     @JavascriptInterface
-    fun removeKey(key: String?) {
-        if (key == null) return
+    fun removeKey(key: String) {
         prefs.edit().remove(key).apply()
     }
 }

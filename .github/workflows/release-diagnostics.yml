@@ -2,18 +2,26 @@ name: Release diagnostics
 on:
   pull_request:
     paths: ['.github/workflows/release-diagnostics.yml']
-  workflow_dispatch:
 permissions:
-  actions: read
   contents: read
 jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Report failed verification output
+      - name: Inspect previous certificate and stable certificate
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          SIGNING: ${{ secrets.BARIDAT_SIGNING_BUNDLE_B64 }}
         run: |
-          log=$(gh run view 43763298140 --log | grep -A 50 "Verify version and signing continuity" | tail -25 | base64 -w0)
-          echo "::notice::$log"
+          set -euo pipefail
+          gh release download v2.8.1 --pattern baridat.apk --dir /tmp/previous-release
+          echo "$SIGNING" | base64 -d > /tmp/bundle.pem
+          awk 'BEGIN{c=0} /-----BEGIN/{c++; f="/tmp/baridat-"c".pem"} {print > f}' /tmp/bundle.pem
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          set +e
+          output=$("$BUILD_TOOLS/apksigner" verify --print-certs /tmp/previous-release/baridat.apk 2>&1)
+          status=$?
+          echo "::notice::Previous APK verification exit code: $status"
+          echo "::notice::$(echo "$output" | grep -i sha-256 | tr '\n' ' ')"
+          echo "::notice::Stable certificate: $(openssl x509 -in /tmp/baridat-2.pem -noout -fingerprint -sha256)"

@@ -8,8 +8,6 @@ import android.util.Log
 import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -59,16 +57,19 @@ class MainActivity : AppCompatActivity() {
 
         web = WebView(this)
         web.webViewClient = object : WebViewClient() {
+            @Suppress("OVERRIDE_DEPRECATION")
             override fun onReceivedError(
-                view: WebView?, req: WebResourceRequest?, err: WebResourceError?
+                view: WebView?, errorCode: Int, description: String?, failingUrl: String?
             ) {
-                Log.e("Baridat", "WebView error @${req?.url}: ${err?.errorCode} ${err?.description}")
-                super.onReceivedError(view, req, err)
+                Log.e("Baridat", "WebView error @$failingUrl: $errorCode $description")
+                super.onReceivedError(view, errorCode, description, failingUrl)
             }
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(cm: ConsoleMessage?): Boolean {
-                cm?.let { Log.d("WebView[${it.messageLevel()}]", "${it.sourceId()}:${it.lineNumber()} ${it.message()}") }
+                if (cm != null) {
+                    Log.d("WebView", cm.message() + " @ " + cm.sourceId() + ":" + cm.lineNumber())
+                }
                 return true
             }
         }

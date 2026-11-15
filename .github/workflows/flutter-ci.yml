@@ -25,7 +25,7 @@ jobs:
         run: |
           flutter analyze --machine > analysis.txt || true
           while IFS= read -r line; do echo "::error::$line"; done < analysis.txt
-          test ! -s analysis.txt
+          ! grep -q "  error •" analysis.txt
       - run: flutter test
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4

@@ -21,11 +21,7 @@ jobs:
           channel: stable
           flutter-version: '3.32.8'
       - run: flutter pub get
-      - name: Analyze
-        run: |
-          flutter analyze --machine > analysis.txt || true
-          while IFS= read -r line; do echo "::error::$line"; done < analysis.txt
-          ! grep -q "  error •" analysis.txt
+      - run: flutter analyze
       - run: flutter test
       - name: Build Flutter APK
         run: |

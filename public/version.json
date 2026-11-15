@@ -1,8 +1,8 @@
 {
-  "version": "2.7.2",
-  "versionCode": 32,
-  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.7.2/baridat.apk",
-  "releaseNotes": "تحسين فحص الوارد والحفاظ على جلسة البريد عند فشل إنشاء عنوان جديد.",
-  "updatedAt": "2026-11-15T18:58:06Z",
+  "version": "2.8.0",
+  "versionCode": 33,
+  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.8.0/baridat.apk",
+  "releaseNotes": "واجهة Flutter جديدة وتحسينات فحص البريد والحفاظ على الجلسة.",
+  "updatedAt": "2026-11-15T19:35:49Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

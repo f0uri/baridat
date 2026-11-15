@@ -71,6 +71,12 @@ jobs:
         with:
           name: web-dist
           path: app/src/main/assets/
+      - name: Verify asset structure
+        run: |
+          ls -la app/src/main/assets/
+          ls app/src/main/assets/assets/ 2>/dev/null
+          test -f app/src/main/assets/index.html
+          test -f app/src/main/assets/version.json
 
       - name: Build (generate) debug keystore if no signing secret
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}

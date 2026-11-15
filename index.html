@@ -2,37 +2,47 @@
 <html lang="ar" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f0c29" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0a0612" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
     <title>بريدات — صندوق بريد مؤقت</title>
     <link rel="preconnect" href="https://api.mail.tm" />
+    <link rel="preconnect" href="https://mail123.fr" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&family=El+Messiri:wght@500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div class="bg-orbs">
-      <div class="orb orb-1"></div>
-      <div class="orb orb-2"></div>
-      <div class="orb orb-3"></div>
-      <div class="orb orb-4"></div>
+      <div class="orb orb-a"></div>
+      <div class="orb orb-b"></div>
+      <div class="orb orb-c"></div>
     </div>
 
-    <div id="app" class="app">
-      <!-- Toast -->
-      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <!-- Toast -->
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-      <!-- Update notification (OTA) -->
-      <div id="updateBanner" class="update-banner glass" hidden>
-        <span>يتوفر تحديث جديد</span>
-        <button id="updateBtn" class="btn-update">تحديث الآن</button>
+    <!-- Update banner -->
+    <div id="updateBanner" class="update-banner glass" hidden>
+      <div class="update-text">
+        <span id="updateMessage">يتوفر إصدار جديد</span>
       </div>
+      <button id="updateBtn" class="btn-gold-sm">تحديث</button>
+    </div>
+
+    <!-- App shell -->
+    <div id="app" class="app">
 
       <!-- Sidebar -->
-      <aside class="sidebar glass" id="sidebar">
+      <aside id="sidebar" class="sidebar glass-panel">
         <div class="sidebar-header">
           <div class="logo">
-            <div class="logo-icon">✉</div>
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2"/>
+              <path d="M3 7l9 6 9-6"/>
+            </svg>
             <div class="logo-text">
               <h1>بريدات</h1>
               <span>Temp Mail</span>
@@ -40,8 +50,8 @@
           </div>
         </div>
 
-        <button id="newEmailBtn" class="btn-new">
-          <span class="btn-icon">＋</span>
+        <button id="newEmailBtn" class="btn-gold">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
           بريد جديد
         </button>
 
@@ -49,69 +59,145 @@
         <div id="emailList" class="email-list"></div>
 
         <div class="sidebar-footer">
-          <button id="settingsBtn" class="btn-icon-only" title="الإعدادات">⚙</button>
-          <a id="downloadApk" class="btn-icon-only" title="تحميل APK" href="https://github.com/f0uri/baridat/releases/latest" target="_blank" rel="noopener" style="display:grid;place-items:center;text-decoration:none;color:var(--text);">📥</a>
-          <div class="version" id="versionBadge">v1.2.0</div>
+          <button id="settingsBtn" class="btn-icon" title="الإعدادات" aria-label="الإعدادات">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <button id="downloadBtn" class="btn-icon" title="تحميل التحديث" aria-label="تحميل APK">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+          <div class="version" id="versionBadge">v—</div>
         </div>
       </aside>
 
+      <!-- Sidebar scrim (mobile) -->
+      <div id="sidebarScrim" class="scrim" hidden></div>
+
       <!-- Main -->
       <main class="main">
-        <!-- Current email bar -->
-        <header class="email-bar glass">
-          <button id="menuBtn" class="menu-btn" aria-label="القائمة">☰</button>
-          <div class="current-email">
-            <div class="email-label">بريدك الحالي</div>
-            <div class="email-address" id="currentAddress">—</div>
-          </div>
-          <div class="email-actions">
-            <button id="copyBtn" class="action-btn" title="نسخ البريد">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-            <button id="refreshBtn" class="action-btn" title="تحديث">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-            </button>
-            <button id="changeBtn" class="action-btn" title="تغيير البريد">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M21 7H7"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h14"/></svg>
-            </button>
-            <button id="deleteBtn" class="action-btn danger" title="حذف هذا البريد">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-          </div>
+
+        <!-- Top bar -->
+        <header class="topbar glass-panel">
+          <button id="menuBtn" class="icon-btn" aria-label="القائمة">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          <div class="topbar-spacer"></div>
+          <div id="providerBadge" class="provider-badge">—</div>
         </header>
 
-        <!-- Messages -->
-        <section class="messages-wrap">
-          <div id="messagesList" class="messages-list"></div>
-          <div id="emptyState" class="empty-state">
-            <div class="empty-icon">📭</div>
-            <h3>لا توجد رسائل بعد</h3>
-            <p>سيظهر أي بريد يُرسَل إلى عنوانك هنا تلقائيًا</p>
-            <div class="loader" id="loader"></div>
+        <!-- Hero card (current email) -->
+        <section class="hero-card glass-panel">
+          <div class="hero-label">بريدك الحالي</div>
+          <div id="currentAddress" class="hero-address" dir="ltr">—</div>
+          <div class="hero-actions">
+            <button id="copyBtn" class="hero-btn" title="نسخ البريد">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>نسخ</span>
+            </button>
+            <button id="refreshBtn" class="hero-btn" title="تحديث الصندوق">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+              <span>تحديث</span>
+            </button>
+            <button id="changeBtn" class="hero-btn" title="بريد جديد">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4"/><path d="M21 7H7"/><path d="M7 21l-4-4 4-4"/><path d="M3 17h14"/></svg>
+              <span>تغيير</span>
+            </button>
+            <button id="deleteBtn" class="hero-btn hero-btn-danger" title="حذف البريد">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+              <span>حذف</span>
+            </button>
           </div>
         </section>
 
-        <!-- Message detail modal -->
-        <div id="messageModal" class="modal-backdrop" hidden>
-          <div class="modal glass">
-            <div class="modal-header">
-              <button id="closeModal" class="close-btn">✕</button>
-              <div class="modal-subject" id="modalSubject">—</div>
-            </div>
-            <div class="modal-meta">
-              <div><strong>من:</strong> <span id="modalFrom">—</span></div>
-              <div><strong>إلى:</strong> <span id="modalTo">—</span></div>
-              <div><strong>التاريخ:</strong> <span id="modalDate">—</span></div>
-            </div>
-            <div class="modal-attachments" id="modalAttachments"></div>
-            <div class="modal-body">
-              <iframe id="modalIframe" sandbox="allow-same-origin"></iframe>
-            </div>
-          </div>
+        <!-- Auto-refresh indicator -->
+        <div id="refreshIndicator" class="refresh-indicator" hidden>
+          <span class="dot"></span>
+          <span id="refreshText">جاري التحديث…</span>
         </div>
+
+        <!-- Messages section -->
+        <section class="messages-section">
+          <div class="section-header">
+            <h2>الصندوق</h2>
+            <span id="mailCount" class="mail-count"></span>
+          </div>
+          <div id="messagesList" class="messages-list"></div>
+          <div id="emptyState" class="empty-state" hidden>
+            <svg class="empty-icon" viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="8" y="16" width="48" height="34" rx="4"/>
+              <path d="M8 22l24 16 24-16"/>
+              <line x1="8" y1="50" x2="24" y2="34"/>
+              <line x1="56" y1="50" x2="40" y2="34"/>
+            </svg>
+            <h3>لا توجد رسائل بعد</h3>
+            <p>سيظهر أي بريد يُرسَل إلى عنوانك هنا تلقائياً</p>
+          </div>
+          <div id="errorState" class="error-state" hidden>
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <h3 id="errorTitle">تعذر الاتصال</h3>
+            <p id="errorText"></p>
+            <button id="retryBtn" class="btn-gold-sm">إعادة المحاولة</button>
+          </div>
+        </section>
+
       </main>
     </div>
 
-    <script type="module" src="/src/main.js"></script>
+    <!-- Message modal -->
+    <div id="messageModal" class="modal-backdrop" hidden>
+      <div class="modal glass-panel">
+        <div class="modal-header">
+          <button id="closeModal" class="icon-btn" aria-label="إغلاق">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <div class="modal-subject-wrap">
+            <div id="modalSubject" class="modal-subject">—</div>
+          </div>
+          <button id="deleteMsgBtn" class="icon-btn" aria-label="حذف الرسالة">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+          </button>
+        </div>
+        <div class="modal-meta">
+          <div class="meta-row"><span class="meta-label">من</span><span id="modalFrom" class="meta-value" dir="auto">—</span></div>
+          <div class="meta-row"><span class="meta-label">إلى</span><span id="modalTo" class="meta-value" dir="auto">—</span></div>
+          <div class="meta-row"><span class="meta-label">التاريخ</span><span id="modalDate" class="meta-value">—</span></div>
+          <div id="otpBox" class="otp-box" hidden><span class="otp-label">رمز التحقق</span><span id="otpCode" class="otp-code"></span></div>
+        </div>
+        <div id="modalAttachments" class="modal-attachments"></div>
+        <div class="modal-body">
+          <iframe id="modalIframe" sandbox="allow-same-origin"></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings modal -->
+    <div id="settingsModal" class="modal-backdrop" hidden>
+      <div class="modal glass-panel settings-modal">
+        <div class="modal-header">
+          <button id="closeSettings" class="icon-btn" aria-label="إغلاق">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <div class="modal-subject-wrap"><div class="modal-subject">الإعدادات</div></div>
+          <div style="width:44px"></div>
+        </div>
+        <div class="settings-body">
+          <div class="setting-group">
+            <div class="setting-label">موفّر الخدمة</div>
+            <div id="activeProvider" class="setting-value">—</div>
+          </div>
+          <div class="setting-group">
+            <div class="setting-label">الخادم المخصص</div>
+            <input id="customServer" type="url" class="setting-input" placeholder="https://example.com/api" dir="ltr" />
+            <div class="setting-hint">أدخل رابط خادم BillionMail الخاص بك (اختياري)</div>
+          </div>
+          <div class="setting-group">
+            <div class="setting-label">حول</div>
+            <div class="setting-value" id="settingsVersion">—</div>
+            <div class="setting-hint">بريدات — صندوق بريد مؤقت فاخر</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>

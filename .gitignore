@@ -19,3 +19,4 @@ captures/
 debug.keystore
 signing/baridat.jks
 npm-debug.log*
+baridat.apk

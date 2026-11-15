@@ -14,21 +14,48 @@ function nativeRemove(key) {
 }
 
 // ======= Version =======
-let APP_VERSION = '0.0.0';
-(async function resolveVersion() {
-  // Prefer native (Kotlin BuildConfig) over anything else
-  if (Native && Native.getAppVersion) {
-    APP_VERSION = Native.getAppVersion();
-    return;
-  }
+// Read synchronously from NativeBridge first (it is attached before loadUrl).
+// If the native call throws or returns empty, fall back to a short retry loop,
+// then finally to embedded version.json fetched via XMLHttpRequest (fetch() is
+// unreliable on file:///android_asset in some WebView versions).
+let APP_VERSION = '';
+function resolveVersion() {
   try {
-    const res = await fetch('./version.json', { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.version) APP_VERSION = data.version;
+    if (Native && typeof Native.getAppVersion === 'function') {
+      const v = Native.getAppVersion();
+      if (v && typeof v === 'string' && /^\d+\.\d+\.\d+/.test(v)) {
+        APP_VERSION = v;
+        return true;
+      }
     }
   } catch {}
-})();
+  return false;
+}
+if (!resolveVersion()) {
+  // Retry a few ticks — on some cold WebView starts the bridge isn't visible
+  // to JS until the first microtask queue flush.
+  let tries = 0;
+  const t = setInterval(() => {
+    tries++;
+    if (resolveVersion() || tries >= 20) {
+      clearInterval(t);
+      // Last-resort: XHR version.json (works on file://, unlike fetch in some WebViews)
+      if (!APP_VERSION) {
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', './version.json', false);
+          xhr.send(null);
+          if (xhr.status === 200 || xhr.status === 0) {
+            const d = JSON.parse(xhr.responseText);
+            if (d && d.version) APP_VERSION = d.version;
+          }
+        } catch {}
+      }
+      if (!APP_VERSION) APP_VERSION = '0.0.0';
+      renderVersion();
+    }
+  }, 50);
+}
 
 // ======= Providers =======
 const PROVIDERS = {
@@ -731,8 +758,6 @@ async function init() {
   bindEvents();
   loadAccounts();
   render();
-  await new Promise(r => setTimeout(r, 50)); // allow APP_VERSION to resolve
-  renderVersion();
   if (currentAccount) {
     await refreshMessages();
     startPolling();

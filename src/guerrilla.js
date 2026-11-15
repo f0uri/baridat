@@ -37,10 +37,14 @@ export class GuerrillaMail {
     const query = new URLSearchParams({ f, ...params });
     if (session?.sid_token) query.set('sid_token', session.sid_token);
     const response = await this.request(`${BASE_URL}?${query}`);
-    if (!response.ok) throw new Error(response.status ? `تعذر الاتصال بالخدمة (${response.status})` : 'تعذر الاتصال بالخدمة. تحقق من الإنترنت أو قيود المتصفح.');
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) throw new Error('رفضت خدمة البريد الطلب؛ قد تكون الجلسة منتهية أو الخدمة تمنع الاتصال');
+      if (response.status === 429) throw new Error('طلبات كثيرة؛ انتظر قليلاً ثم حدّث الوارد');
+      throw new Error(response.status ? `تعذر الاتصال بالخدمة (${response.status})` : 'تعذر الاتصال بالخدمة. تحقق من الإنترنت أو قيود المتصفح.');
+    }
     let data;
     try { data = JSON.parse(response.body); } catch { throw new Error('استجابة غير صالحة من خدمة البريد'); }
-    if (!data || typeof data !== 'object' || data.error) throw new Error('رفضت خدمة البريد الطلب أو انتهت صلاحية الجلسة');
+    if (!data || typeof data !== 'object' || data.error || data.auth?.success === false) throw new Error('رفضت خدمة البريد الطلب أو انتهت صلاحية الجلسة');
     return data;
   }
   update(session, data) {
@@ -91,6 +95,10 @@ export class GuerrillaMail {
       if (!this.session) throw new Error('لا توجد جلسة بريد');
       const data = await this.call('get_email_list', {offset:'0'});
       if (!Array.isArray(data.list)) throw new Error('استجابة قائمة البريد غير صالحة');
+      const returnedAddress = data.email || data.email_addr;
+      if (typeof returnedAddress === 'string' && returnedAddress && returnedAddress.toLowerCase() !== this.session.email_addr.toLowerCase()) {
+        throw new Error('جلسة البريد لم تعد تطابق العنوان المعروض. أنشئ عنواناً جديداً لتجنب فقد الرسائل.');
+      }
       this.update(this.session, data);
       return data.list.filter(m => m && m.mail_id != null && !/no-reply@guerrillamail\.com/i.test(String(m.mail_from || '')));
     });

@@ -1,8 +1,8 @@
 {
-  "version": "2.6.0",
-  "versionCode": 29,
-  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.6.0/baridat.apk",
-  "releaseNotes": "تصميم جديد، أصوات للنقرات وتنزيل التحديثات داخل تطبيق أندرويد.",
-  "updatedAt": "2026-11-15T18:07:48Z",
+  "version": "2.7.0",
+  "versionCode": 30,
+  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.7.0/baridat.apk",
+  "releaseNotes": "واجهة محسنة وتنبيهات أوضح لمشاكل الاتصال والجلسة وتغيير النطاق.",
+  "updatedAt": "2026-11-15T18:28:43Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }

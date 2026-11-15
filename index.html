@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#f2f2f7">
+<meta name="theme-color" content="#f4f6fc">
 <link rel="icon" type="image/svg+xml" href="./icon.svg">
 <link rel="manifest" href="./manifest.webmanifest">
 <title>بريدات — بريد مؤقت</title>
@@ -13,20 +13,22 @@
   <div id="updateBanner" class="ub" role="status"><span class="ub-txt">يتوفر إصدار جديد</span><button id="updateBtn">تحديث</button><button id="updateClose" aria-label="إغلاق">×</button></div>
   <div class="bl b1"></div><div class="bl b2"></div>
   <main id="view" class="ent">
-    <div class="lt"><h1>الوارد</h1><button id="refresh" class="ib" aria-label="تحديث الوارد">↻</button></div>
+    <div class="topline"><div class="brand"><span class="brand-mark"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m4 7 8 6 8-6"/></svg></span><span>بريدات<small>مساحتك البريدية</small></span></div><button id="refresh" class="ib" aria-label="تحديث الوارد"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.7-2L20 12M4 12l2.7 5a7 7 0 0 0 11.7-2"/></svg></button></div>
+    <div class="lt inbox-title"><div><span class="overline">بريد مؤقت، بلا تعقيد</span><h1>صندوق الوارد<span class="title-dot">.</span></h1></div></div>
     <section class="hero">
+      <div class="hero-top"><div><div class="card-label">عنوانك الحالي</div><div class="card-subtitle">بريد جاهز لاستقبال الرسائل</div></div><span class="card-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m4 7 8 6 8-6"/></svg></span></div>
       <div class="hl"><span id="statusDot" class="live"></span><span id="statusText" role="status">جاري الاتصال…</span></div>
       <div id="address" class="addr" dir="ltr"></div>
-      <div class="domain-control"><label for="domainSelect">النطاق</label><select id="domainSelect" dir="ltr" aria-label="نطاق البريد"></select></div>
+      <div class="domain-control"><label for="domainSelect">النطاق</label><select id="domainSelect" dir="ltr" aria-label="نطاق البريد"></select></div><p id="domainError" class="domain-error" role="status" hidden></p>
       <div class="acts">
-        <button id="copyAddress" class="pill pr"><span>⧉</span> نسخ</button>
-        <button id="random" class="pill"><span>↻</span> عنوان جديد</button>
-        <button id="custom" class="pill"><span>✎</span> تخصيص</button>
+        <button id="copyAddress" class="pill pr"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="3"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg> نسخ</button>
+        <button id="random" class="pill"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.7-2L20 12M4 12l2.7 5a7 7 0 0 0 11.7-2"/></svg> عنوان جديد</button>
+        <button id="custom" class="pill"><svg viewBox="0 0 24 24"><path d="m4 20 4-.8L19 8a2.1 2.1 0 0 0-3-3L5 16zM14.5 6.5l3 3"/></svg> تخصيص</button>
       </div>
     </section>
-    <div class="sh"><span>الرسائل</span><b id="counter">0</b></div>
+    <div class="sh inbox-heading"><div><span class="section-eyebrow">كل رسائلك في مكان واحد</span><strong>الرسائل الواردة</strong></div><b id="counter">0</b></div>
     <div id="list" class="grp"></div>
-    <p class="ft">يُفحص الوارد كل ٦ ثوانٍ أثناء فتح التطبيق. قد يتوقف الفحص في الخلفية. هذا البريد مؤقت وغير خاص.</p>
+    <p class="ft"><span class="privacy-dot">✦</span> يُفحص الوارد كل ٦ ثوانٍ أثناء فتح التطبيق. قد يتوقف الفحص في الخلفية. هذا البريد مؤقت وغير خاص.</p>
   </main>
   <section id="settingsView" hidden>
     <div class="lt"><h1>الإعدادات</h1></div>
@@ -36,7 +38,7 @@
     <div class="grp"><div class="settings-row"><span class="ic">ⓘ</span><span class="settings-label">الإصدار<small id="appVersion">بريدات</small></span></div><button class="settings-row" id="checkUpdate"><span class="ic">↓</span><span class="settings-label">فحص التحديثات<small>التنزيل داخل التطبيق على أندرويد</small></span><span class="chevron">‹</span></button></div>
     <p class="ft">التحديث يمر عبر مثبّت أندرويد ويتطلب تأكيدك.</p>
   </section>
-  <nav class="tabs" aria-label="التنقل"><button id="inboxTab" class="on" aria-current="page"><span class="tab-icon">✉</span>الوارد</button><button id="settingsTab"><span class="tab-icon">⚙</span>الإعدادات</button></nav>
+  <nav class="tabs" aria-label="التنقل"><button id="inboxTab" class="on" aria-current="page"><svg class="tab-icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m4 7 8 6 8-6"/></svg>الوارد</button><button id="settingsTab"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.6-.8-1.8 1-1.8-2.1-2.1-1.8 1L11.5 4l-.6-2h-3l-.6 2-1.8.8-1.8-1L1.6 6l1 1.8-.8 1.8-2 .6v3l2 .6.8 1.8-1 1.8 2.1 2.1 1.8-1 1.8.8.6 2h3l.6-2 1.8-.8 1.8 1 2.1-2.1-1-1.8.8-1.8z" transform="translate(2 0) scale(.83)"/></svg>الإعدادات</button></nav>
   <div id="scrim"></div>
   <section id="sheet" aria-label="تفاصيل الرسالة"><div class="gr"><i></i></div><div id="sc"></div></section>
   <div id="toast" role="status"><span id="tt"></span></div>

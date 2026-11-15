@@ -82,3 +82,16 @@ test('rejects unsupported domains before making a request', async () => {
   await assert.rejects(api.rename('a','evil.example'), /غير مدعوم/);
   assert.equal(called,false);
 });
+
+test('does not silently display messages from a different or expired session', async () => {
+  const api = new GuerrillaMail(async () => ok({email:'other@grr.la',sid_token:'new',list:[]}));
+  api.restore({email_addr:'original@grr.la',sid_token:'old',seen_ids:[],known_ids:[]});
+  await assert.rejects(api.list(), /لم تعد تطابق/);
+  assert.equal(api.session.email_addr,'original@grr.la');
+  assert.equal(api.session.sid_token,'old');
+});
+test('surfaces authentication rejection even when HTTP status is 200', async () => {
+  const api = new GuerrillaMail(async () => ok({auth:{success:false},list:[]}));
+  api.restore({email_addr:'a@grr.la',sid_token:'s'});
+  await assert.rejects(api.list(), /رفضت/);
+});

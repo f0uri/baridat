@@ -9,7 +9,7 @@ const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const STORAGE = 'baridat_guerrilla_v1';
 let session = null, messages = [], busy = false, polling = false, status = 'جاري الاتصال…', connected = false;
-let lastCheck = null, sheetRevision = 0;
+let lastCheck = null, sheetRevision = 0, domainError = '';
 
 function load() {
   try {
@@ -76,6 +76,7 @@ function domainOptions(current) {
 function render() {
   const address = session?.email_addr || 'جاري إنشاء العنوان…';
   $('#address').textContent = address;
+  $('#domainError').textContent = domainError; $('#domainError').hidden = !domainError;
   const domain = session?.email_addr.split('@')[1]?.toLowerCase() || '';
   $('#domainSelect').innerHTML = domainOptions(domain);
   $('#domainSelect').disabled = !session || busy;
@@ -87,7 +88,7 @@ function render() {
   $('#refresh').disabled = !session || busy;
   $('#counter').textContent = messages.length;
   const seen = new Set(session?.seen_ids || []);
-  $('#list').innerHTML = messages.length ? messages.map(m => `<button class="row glass message-row" data-id="${esc(m.mail_id)}"><span class="av">${esc(String(m.mail_from || '?').charAt(0).toUpperCase())}</span><span class="rb"><span class="r1"><b dir="auto">${esc(m.mail_from || 'مرسل غير معروف')}</b><time>${esc(formatTime(m.mail_timestamp || m.mail_date))}</time></span><span class="r2" dir="auto">${esc(m.mail_subject || '(بدون موضوع)')}</span><span class="r3" dir="auto">${esc(m.mail_excerpt || '')}</span></span>${seen.has(String(m.mail_id)) ? '' : '<i class="ud"></i>'}</button>`).join('') : `<div class="em"><div class="empty-icon">✉</div><b>صندوق الوارد فارغ</b><p>تظهر الرسائل هنا عند وصولها.</p></div>`;
+  $('#list').innerHTML = messages.length ? messages.map(m => `<button class="row glass message-row" data-id="${esc(m.mail_id)}"><span class="av">${esc(String(m.mail_from || '?').charAt(0).toUpperCase())}</span><span class="rb"><span class="r1"><b dir="auto">${esc(m.mail_from || 'مرسل غير معروف')}</b><time>${esc(formatTime(m.mail_timestamp || m.mail_date))}</time></span><span class="r2" dir="auto">${esc(m.mail_subject || '(بدون موضوع)')}</span><span class="r3" dir="auto">${esc(m.mail_excerpt || '')}</span></span>${seen.has(String(m.mail_id)) ? '' : '<i class="ud"></i>'}</button>`).join('') : `<div class="em"><div class="empty-visual"><i></i><i></i><div class="empty-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="m4 7 8 6 8-6"/></svg></div><span class="spark s1">✦</span><span class="spark s2">✦</span></div><b>لا توجد رسائل بعد</b><p>عندما تصلك رسالة، ستجدها هنا مباشرةً.</p><span class="empty-hint">يتم التحديث تلقائياً</span></div>`;
 }
 function setError(error) { connected = false; status = error?.message || 'تعذر الاتصال بخدمة البريد'; render(); }
 function showSheet(content) { sheetRevision++; $('#sc').innerHTML = content; $('#scrim').classList.add('on'); $('#sheet').classList.add('open'); }
@@ -96,7 +97,7 @@ async function create() {
   if (busy) return;
   busy = true; status = 'جاري إنشاء عنوان…'; connected = false; render();
   try {
-    await api.create(); messages = []; lastCheck = null; closeSheet(); toast('تم إنشاء عنوان جديد');
+    await api.create(); domainError = ''; messages = []; lastCheck = null; closeSheet(); toast('تم إنشاء عنوان جديد');
   } catch (error) { setError(error); toast(error.message); }
   finally { busy = false; render(); }
   if (session) poll();
@@ -111,7 +112,7 @@ function customSheet() {
     const previousName = session.email_addr.split('@')[0].toLowerCase();
     busy = true; const submit = event.currentTarget.querySelector('button'); submit.disabled = true; render();
     try {
-      await api.rename(name, site);
+      await api.rename(name, site); domainError = '';
       if (session.email_addr.split('@')[0].toLowerCase() !== previousName) messages = [];
       lastCheck = null; closeSheet(); toast('تم تغيير العنوان');
     } catch (error) { const el = $('#formError'); if (el) el.textContent = error.message; }
@@ -124,10 +125,10 @@ async function changeDomain(site) {
   const name = session.email_addr.split('@')[0];
   busy = true; render();
   try {
-    await api.rename(name, site);
+    await api.rename(name, site); domainError = '';
     lastCheck = null;
     toast('تم تغيير النطاق');
-  } catch (error) { toast(error.message); }
+  } catch (error) { domainError = error.message; toast('تعذر تغيير النطاق'); }
   finally { if (session.email_addr.split('@')[0].toLowerCase() !== name.toLowerCase()) messages = []; busy = false; render(); }
   poll();
 }
@@ -195,7 +196,7 @@ function switchTab(settings) {
 }
 $('#inboxTab').onclick = () => switchTab(false);
 $('#settingsTab').onclick = () => switchTab(true);
-try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.6.0'); } catch {}
+try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.7.0'); } catch {}
 $('#copyAddress').onclick = () => session && copy(session.email_addr);
 $('#random').onclick = create;
 $('#custom').onclick = customSheet;
@@ -230,7 +231,7 @@ async function checkUpdate(manual = false) {
     const response = await request('https://raw.githubusercontent.com/f0uri/baridat/main/public/version.json?t=' + Date.now());
     if (!response.ok) throw new Error();
     const info = JSON.parse(response.body);
-    const currentCode = N?.getVersionCode ? Number(N.getVersionCode()) : 29;
+    const currentCode = N?.getVersionCode ? Number(N.getVersionCode()) : 30;
     if (Number(info.versionCode) > currentCode && typeof info.version === 'string') {
       const url = new URL(info.apkUrl);
       if (url.protocol !== 'https:' || url.hostname !== 'github.com' || url.port || url.search || url.hash || !/^\/f0uri\/baridat\/releases\/download\/v[0-9]+\.[0-9]+\.[0-9]+\/baridat\.apk$/.test(url.pathname)) throw new Error();

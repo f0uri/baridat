@@ -202,7 +202,7 @@ function switchTab(settings) {
 }
 $('#inboxTab').onclick = () => switchTab(false);
 $('#settingsTab').onclick = () => switchTab(true);
-try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.7.1'); } catch {}
+try { $('#appVersion').textContent = 'بريدات ' + (N?.getAppVersion?.() || '2.7.2'); } catch {}
 $('#copyAddress').onclick = () => session && copy(displayAddress(session));
 $('#random').onclick = create;
 $('#custom').onclick = customSheet;

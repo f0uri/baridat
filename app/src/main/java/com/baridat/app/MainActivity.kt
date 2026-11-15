@@ -2,6 +2,7 @@ package com.baridat.app
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import org.json.JSONObject
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -13,6 +14,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
+    private lateinit var updates: UpdateManager
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,7 +28,15 @@ class MainActivity : AppCompatActivity() {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         web = WebView(this)
-        web.webViewClient = WebViewClient()
+        updates = UpdateManager(this) { json ->
+            web.evaluateJavascript("window.onNativeUpdate && window.onNativeUpdate(" + JSONObject.quote(json) + ")", null)
+        }
+        web.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String) {
+                super.onPageFinished(view, url)
+                updates.status()
+            }
+        }
         web.webChromeClient = WebChromeClient()
 
         val s: WebSettings = web.settings
@@ -55,6 +65,13 @@ class MainActivity : AppCompatActivity() {
         setContentView(web)
         web.loadUrl("file:///android_asset/index.html")
     }
+
+    fun downloadUpdate(url: String) = runOnUiThread { updates.start(url) }
+    fun installUpdate() = runOnUiThread { updates.installRequested() }
+    fun updateStatus() = runOnUiThread { updates.status() }
+
+    override fun onResume() { super.onResume(); if (::updates.isInitialized) updates.onResume() }
+    override fun onPause() { if (::updates.isInitialized) updates.onPause(); super.onPause() }
 
     @Suppress("DEPRECATION")
     override fun onBackPressed() {

@@ -1,8 +1,8 @@
 {
-  "version": "2.5.0",
-  "versionCode": 28,
-  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.5.0/baridat.apk",
-  "releaseNotes": "الانتقال إلى Guerrilla Mail مع اختيار النطاق، وتخصيص العنوان واستخراج رموز التحقق.",
-  "updatedAt": "2026-11-15T15:54:09Z",
+  "version": "2.6.0",
+  "versionCode": 29,
+  "apkUrl": "https://github.com/f0uri/baridat/releases/download/v2.6.0/baridat.apk",
+  "releaseNotes": "تصميم جديد، أصوات للنقرات وتنزيل التحديثات داخل تطبيق أندرويد.",
+  "updatedAt": "2026-11-15T18:07:48Z",
   "githubRepo": "https://github.com/f0uri/baridat"
 }
